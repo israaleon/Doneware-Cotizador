@@ -55,7 +55,7 @@ export default function ConfiguracionPage() {
 
       <div className="panel">
         <h3>Logotipo</h3>
-        <div style={{ display: 'flex', gap: 14, alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: 14, alignItems: 'center', flexWrap: 'wrap' }}>
           <div style={{ width: 64, height: 64, border: '1px solid var(--line)', borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', background: '#FAFAFA' }}>
             {config.logo_url ? <img src={config.logo_url} alt="" style={{ maxWidth: '100%', maxHeight: '100%' }} /> : <span className="muted" style={{ fontSize: 10 }}>Sin logo</span>}
           </div>

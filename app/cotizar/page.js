@@ -216,26 +216,24 @@ function CotizarInner() {
             </div>
             {errors.items && <div className="fielderr">{errors.items}</div>}
             {draft.items.map((it, idx) => (
-              <div key={idx} style={{ display: 'grid', gridTemplateColumns: '2.2fr 1fr .6fr .9fr 28px', gap: 8, marginBottom: 8, alignItems: 'start' }}>
-                <div>
+              <div key={idx} className="item-row">
+                <div className="f-name">
                   <input className={itemErr(idx, 'name') ? 'input-error' : ''} value={it.name} placeholder="Descripción"
                     onChange={(e) => updateItem(idx, 'name', e.target.value)} />
                   {itemErr(idx, 'name') && <div className="fielderr">{itemErr(idx, 'name')}</div>}
                 </div>
-                <div>
+                <div className="f-price">
                   <input className={itemErr(idx, 'price') ? 'input-error' : ''} type="number" min="0" step="0.01" value={it.price}
                     onChange={(e) => updateItem(idx, 'price', e.target.value === '' ? '' : parseFloat(e.target.value))} />
                   {itemErr(idx, 'price') && <div className="fielderr">{itemErr(idx, 'price')}</div>}
                 </div>
-                <div>
+                <div className="f-qty">
                   <input className={itemErr(idx, 'qty') ? 'input-error' : ''} type="number" min="1" step="1" value={it.qty}
                     onChange={(e) => updateItem(idx, 'qty', e.target.value === '' ? '' : parseInt(e.target.value))} />
                   {itemErr(idx, 'qty') && <div className="fielderr">{itemErr(idx, 'qty')}</div>}
                 </div>
-                <div style={{ fontFamily: 'var(--mono)', fontSize: 12.5, textAlign: 'right', paddingTop: 8 }}>
-                  {fmt((it.price || 0) * (it.qty || 0))}
-                </div>
-                <button className="iconbtn" onClick={() => removeItem(idx)}>✕</button>
+                <div className="f-importe">{fmt((it.price || 0) * (it.qty || 0))}</div>
+                <button className="iconbtn f-del" onClick={() => removeItem(idx)}>✕</button>
               </div>
             ))}
             <button className="btn ghost small" onClick={addBlankItem}>+ Agregar línea libre</button>

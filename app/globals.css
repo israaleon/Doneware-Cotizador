@@ -3,7 +3,7 @@
 
 :root{
   --ink:#12181F; --ink-soft:#2A333E; --steel:#5B6B7C; --line:#DADFE3;
-  --paper:#F5F6F4; --panel:#FFFFFF; --teal:#126662; --teal-dark:#128078;
+  --paper:#F5F6F4; --panel:#FFFFFF; --teal:#1FAFA8; --teal-dark:#128078;
   --amber:#E8A33D; --red:#C4573B;
   --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -16,10 +16,11 @@ html, body{ margin:0; padding:0; background:var(--paper); font-family:var(--sans
 .brand{ padding:0 20px 18px 20px; border-bottom:1px solid #2A333E; margin-bottom:14px; }
 .brand .name{ font-weight:700; font-size:15px; color:#fff; }
 .brand .tag{ font-family:var(--mono); font-size:10.5px; color:var(--teal); margin-top:4px; }
-.navitem{ padding:10px 20px; font-size:13.5px; cursor:pointer; border-left:3px solid transparent; color:#AEB9C2; text-decoration:none; display:block; }
+.navitems{ display:flex; flex-direction:column; }
+.navitem{ padding:10px 20px; font-size:13.5px; cursor:pointer; border-left:3px solid transparent; color:#AEB9C2; text-decoration:none; display:block; white-space:nowrap; }
 .navitem:hover{ color:#fff; }
 .navitem.active{ color:#fff; border-left:3px solid var(--teal); background:rgba(31,175,168,.10); }
-.navfoot{ margin-top:auto; padding:14px 20px 0 20px; font-size:10.5px; color:#5B6B7C; font-family:var(--mono); border-top:1px solid #2A333E; padding-top:12px; }
+.navfoot{ margin-top:auto; padding:14px 20px 0 20px; font-size:10.5px; color:#5B6B7C; font-family:var(--mono); border-top:1px solid #2A333E; padding-top:12px; flex:0 0 auto; }
 
 .main{ flex:1; padding:30px 36px; min-width:0; }
 h2.pagetitle{ font-size:20px; margin:0 0 3px 0; }
@@ -63,5 +64,79 @@ table.datatable td{ padding:7px 8px; border-bottom:1px solid #EEF0F1; }
 .savebar{ display:flex; justify-content:flex-end; margin-top:14px; }
 .helptext{ font-size:11.5px; color:var(--steel); margin-top:-4px; margin-bottom:12px; }
 .editbanner{ display:flex; justify-content:space-between; align-items:center; background:#FFF6E9; border:1px solid var(--amber); color:#8A5A16; padding:9px 14px; border-radius:4px; font-size:12.5px; margin-bottom:16px; }
-.login-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--paper); }
+.login-wrap{ min-height:100vh; display:flex; align-items:center; justify-content:center; background:var(--paper); padding:20px; }
 .login-box{ width:100%; max-width:340px; background:#fff; border:1px solid var(--line); border-radius:6px; padding:26px; }
+
+/* ---------- Cotizar: fila de un producto ---------- */
+.item-row{
+  display:grid;
+  grid-template-columns: 2.2fr 1fr .6fr .9fr 28px;
+  grid-template-areas: "name price qty importe del";
+  gap:8px; margin-bottom:8px; align-items:start;
+}
+.item-row .f-name{ grid-area:name; }
+.item-row .f-price{ grid-area:price; }
+.item-row .f-qty{ grid-area:qty; }
+.item-row .f-importe{ grid-area:importe; font-family:var(--mono); font-size:12.5px; text-align:right; padding-top:8px; }
+.item-row .f-del{ grid-area:del; }
+
+/* ---------- Historial: buscador y tarjeta de catálogo ---------- */
+.hist-search-grid{ display:grid; grid-template-columns: 2fr 1fr 1fr; gap:10px; }
+.cat-add-grid{ display:grid; grid-template-columns: 2fr 1.1fr 1fr auto; gap:8px; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
+.table-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
+.table-scroll table.datatable{ min-width:520px; }
+
+/* =====================================================
+   RESPONSIVO — tablet y celular
+   ===================================================== */
+
+/* Tablet: la columna del ticket/preview pasa debajo del formulario */
+@media (max-width: 960px){
+  .grid2{ grid-template-columns: 1fr; }
+  .main{ padding:24px; }
+}
+
+/* Celular / tablet chico: el menú lateral se convierte en barra superior */
+@media (max-width: 768px){
+  .app-shell{ flex-direction:column; min-height:auto; }
+  .sidebar{
+    width:100%; flex:none; height:auto; position:sticky; top:0; z-index:40;
+    flex-direction:row; align-items:center; padding:8px 10px; gap:10px;
+    border-bottom:1px solid #2A333E;
+  }
+  .brand{ padding:0 10px 0 4px; border-bottom:none; margin-bottom:0; flex:0 0 auto; }
+  .brand .tag{ display:none; }
+  .navitems{ flex-direction:row; overflow-x:auto; flex:1; }
+  .navitem{ padding:8px 12px; border-left:none; border-bottom:3px solid transparent; font-size:13px; }
+  .navitem.active{ border-left:none; border-bottom:3px solid var(--teal); }
+  .navfoot{ margin-top:0; padding:0; border-top:none; flex:0 0 auto; }
+  .navfoot .btn{ padding:7px 10px; font-size:12px; }
+
+  .main{ padding:16px; }
+  h2.pagetitle{ font-size:18px; }
+  .panel{ padding:14px; }
+  .fieldrow{ grid-template-columns: 1fr; gap:0; }
+  .hist-search-grid{ grid-template-columns: 1fr; }
+  .cat-add-grid{ grid-template-columns: 1fr 1fr; }
+  .cat-add-grid button{ grid-column: 1 / -1; }
+
+  .hist-row{ grid-template-columns: 1fr; gap:6px; padding:14px 10px; }
+  .editbanner{ flex-direction:column; align-items:flex-start; gap:8px; }
+}
+
+/* Celular chico */
+@media (max-width: 480px){
+  .item-row{
+    grid-template-columns: 1fr 1fr;
+    grid-template-areas:
+      "name name"
+      "price qty"
+      "importe del";
+    align-items:center;
+  }
+  .item-row .f-importe{ text-align:left; padding-top:0; }
+  .btn.small{ padding:7px 11px; font-size:12.5px; }
+  .actionsbar{ flex-direction:column; align-items:stretch; }
+  .actionsbar .btn{ text-align:center; }
+  table.datatable{ font-size:12px; }
+}

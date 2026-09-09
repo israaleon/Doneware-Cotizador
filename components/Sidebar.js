@@ -27,11 +27,13 @@ export default function Sidebar() {
         <div className="name">Cotizador</div>
         <div className="tag">SEG · DOMÓTICA</div>
       </div>
-      {ITEMS.map((it) => (
-        <Link key={it.href} href={it.href} className={`navitem ${pathname === it.href ? 'active' : ''}`}>
-          {it.label}
-        </Link>
-      ))}
+      <div className="navitems">
+        {ITEMS.map((it) => (
+          <Link key={it.href} href={it.href} className={`navitem ${pathname === it.href ? 'active' : ''}`}>
+            {it.label}
+          </Link>
+        ))}
+      </div>
       <div className="navfoot">
         <button className="btn ghost small" style={{ width: '100%' }} onClick={logout}>Cerrar sesión</button>
       </div>

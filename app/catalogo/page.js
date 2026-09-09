@@ -36,27 +36,29 @@ export default function CatalogoPage() {
       <h2 className="pagetitle">Catálogo y precios</h2>
       <div className="pagesub">Los cambios se reflejan de inmediato en las nuevas cotizaciones.</div>
       <div className="panel">
-        <table className="datatable">
-          <thead><tr><th>Producto / servicio</th><th>Unidad</th><th>Precio</th><th></th></tr></thead>
-          <tbody>
-            {items.map((it) => (
-              <tr key={it.id}>
-                <td><input value={it.name} onChange={(e) => updateField(it.id, 'name', e.target.value)} onBlur={() => saveRow(it.id)} /></td>
-                <td>
-                  <select value={it.unit} onChange={(e) => { updateField(it.id, 'unit', e.target.value); }} onBlur={() => saveRow(it.id)}>
-                    <option value="pieza">Pieza</option>
-                    <option value="servicio">Servicio</option>
-                    <option value="mes">Mensual</option>
-                    <option value="hora">Hora</option>
-                  </select>
-                </td>
-                <td><input type="number" min="0" step="0.01" value={it.price} onChange={(e) => updateField(it.id, 'price', e.target.value)} onBlur={() => saveRow(it.id)} /></td>
-                <td style={{ textAlign: 'right' }}><button className="iconbtn" onClick={() => removeRow(it.id)}>✕</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1.1fr 1fr auto', gap: 8, marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+        <div className="table-scroll">
+          <table className="datatable">
+            <thead><tr><th>Producto / servicio</th><th>Unidad</th><th>Precio</th><th></th></tr></thead>
+            <tbody>
+              {items.map((it) => (
+                <tr key={it.id}>
+                  <td><input value={it.name} onChange={(e) => updateField(it.id, 'name', e.target.value)} onBlur={() => saveRow(it.id)} /></td>
+                  <td>
+                    <select value={it.unit} onChange={(e) => { updateField(it.id, 'unit', e.target.value); }} onBlur={() => saveRow(it.id)}>
+                      <option value="pieza">Pieza</option>
+                      <option value="servicio">Servicio</option>
+                      <option value="mes">Mensual</option>
+                      <option value="hora">Hora</option>
+                    </select>
+                  </td>
+                  <td><input type="number" min="0" step="0.01" value={it.price} onChange={(e) => updateField(it.id, 'price', e.target.value)} onBlur={() => saveRow(it.id)} /></td>
+                  <td style={{ textAlign: 'right' }}><button className="iconbtn" onClick={() => removeRow(it.id)}>✕</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <div className="cat-add-grid">
           <input placeholder="Nombre del nuevo producto o servicio" value={newItem.name} onChange={(e) => setNewItem({ ...newItem, name: e.target.value })} />
           <select value={newItem.unit} onChange={(e) => setNewItem({ ...newItem, unit: e.target.value })}>
             <option value="pieza">Pieza</option>

@@ -123,7 +123,7 @@ export default function HistorialPage() {
       <div className="pagesub">Todas tus cotizaciones y recibos.</div>
 
       <div className="panel" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 10 }}>
+        <div className="hist-search-grid">
           <div className="field" style={{ marginBottom: 0 }}>
             <label>Buscar por nombre o folio</label>
             <input value={searchText} onChange={(e) => setSearchText(e.target.value)} placeholder="Ej. Juan Pérez o COT-2026-0001" />
