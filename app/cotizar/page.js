@@ -41,6 +41,8 @@ function CotizarInner() {
   const [errors, setErrors] = useState({})
   const [editingRec, setEditingRec] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [selectedCatalogId, setSelectedCatalogId] = useState('')
+  const [justAddedIdx, setJustAddedIdx] = useState(null)
 
   useEffect(() => {
     async function load() {
@@ -72,6 +74,12 @@ function CotizarInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editId])
 
+  useEffect(() => {
+    if (justAddedIdx === null) return
+    const t = setTimeout(() => setJustAddedIdx(null), 1200)
+    return () => clearTimeout(t)
+  }, [justAddedIdx])
+
   if (!draft || !config) return <div>Cargando…</div>
 
   const totals = calcTotals(draft.items, draft.discountType, draft.discountValue, config.apply_iva, config.iva_rate)
@@ -83,7 +91,11 @@ function CotizarInner() {
   function addFromCatalog(catalogId) {
     const p = catalog.find((c) => c.id === catalogId)
     if (!p) return
-    setDraft((d) => ({ ...d, items: [...d.items, { name: p.name, price: p.price, qty: 1 }] }))
+    setDraft((d) => {
+      const items = [...d.items, { name: p.name, price: p.price, qty: 1 }]
+      setJustAddedIdx(items.length - 1)
+      return { ...d, items }
+    })
   }
   function addBlankItem() {
     setDraft((d) => ({ ...d, items: [...d.items, { name: '', price: '', qty: 1 }] }))
@@ -207,16 +219,29 @@ function CotizarInner() {
             <h3>Productos y servicios</h3>
             <div className="field">
               <label>Agregar desde catálogo</label>
-              <select onChange={(e) => { if (e.target.value) addFromCatalog(e.target.value); e.target.value = '' }}>
-                <option value="">— elegir del catálogo —</option>
-                {catalog.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name} · {fmt(c.price)}</option>
-                ))}
-              </select>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <select value={selectedCatalogId} onChange={(e) => setSelectedCatalogId(e.target.value)} style={{ flex: 1 }}>
+                  <option value="">— elegir del catálogo —</option>
+                  {catalog.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name} · {fmt(c.price)}</option>
+                  ))}
+                </select>
+                <button
+                  className="btn teal small"
+                  style={{ flex: '0 0 auto' }}
+                  disabled={!selectedCatalogId}
+                  onClick={() => { addFromCatalog(selectedCatalogId) }}
+                >
+                  + Agregar
+                </button>
+              </div>
+              <div className="helptext" style={{ marginTop: 6, marginBottom: 0 }}>
+                El producto elegido se queda marcado en la lista; da clic en "+ Agregar" cada vez que quieras añadirlo (puedes agregarlo varias veces si necesitas más de una unidad como líneas separadas).
+              </div>
             </div>
             {errors.items && <div className="fielderr">{errors.items}</div>}
             {draft.items.map((it, idx) => (
-              <div key={idx} className="item-row">
+              <div key={idx} className={`item-row ${idx === justAddedIdx ? 'just-added' : ''}`}>
                 <div className="f-name">
                   <input className={itemErr(idx, 'name') ? 'input-error' : ''} value={it.name} placeholder="Descripción"
                     onChange={(e) => updateItem(idx, 'name', e.target.value)} />
