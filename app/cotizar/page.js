@@ -3,7 +3,8 @@
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
-import { fmt, calcTotals, validateQuote, makeFolio } from '@/lib/calc'
+import { fmt, calcTotals, validateQuote } from '@/lib/calc'
+import { nextFolio } from '@/lib/folio'
 import { buildPdfDoc } from '@/lib/pdf'
 
 function newDraft(config) {
@@ -43,6 +44,7 @@ function CotizarInner() {
   const [saving, setSaving] = useState(false)
   const [selectedCatalogId, setSelectedCatalogId] = useState('')
   const [justAddedIdx, setJustAddedIdx] = useState(null)
+  const [previewFolio, setPreviewFolio] = useState('')
 
   useEffect(() => {
     async function load() {
@@ -69,6 +71,7 @@ function CotizarInner() {
         }
       }
       setDraft(newDraft(cfg))
+      setPreviewFolio(await nextFolio('cotizacion'))
     }
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -83,7 +86,7 @@ function CotizarInner() {
   if (!draft || !config) return <div>Cargando…</div>
 
   const totals = calcTotals(draft.items, draft.discountType, draft.discountValue, config.apply_iva, config.iva_rate)
-  const displayFolio = editingRec ? editingRec.folio : makeFolio('cotizacion', config)
+  const displayFolio = editingRec ? editingRec.folio : (previewFolio || '…')
 
   function updateClient(field, value) {
     setDraft((d) => ({ ...d, client: { ...d.client, [field]: value } }))
@@ -157,11 +160,10 @@ function CotizarInner() {
       if (error) { alert('No se pudo guardar: ' + error.message); setSaving(false); return }
       rec = data
     } else {
-      const folio = makeFolio('cotizacion', config)
+      const folio = await nextFolio('cotizacion')
       const { data, error } = await supabase.from('quotes').insert({ ...payload, folio, status: 'cotizacion' }).select().single()
       if (error) { alert('No se pudo guardar: ' + error.message); setSaving(false); return }
       rec = data
-      await supabase.from('app_config').update({ next_quote_number: config.next_quote_number + 1 }).eq('id', 1)
     }
 
     const doc = await buildPdfDoc(rec, config)

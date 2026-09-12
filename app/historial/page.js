@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
-import { fmt, makeFolio, isValidEmail, isValidPhone10 } from '@/lib/calc'
+import { fmt, isValidEmail, isValidPhone10 } from '@/lib/calc'
+import { nextFolio } from '@/lib/folio'
 import { fillTemplate } from '@/lib/templates'
 import { buildPdfDoc } from '@/lib/pdf'
 import SendMenu from '@/components/SendMenu'
@@ -56,13 +57,13 @@ export default function HistorialPage() {
     doc.save(rec.folio + '.pdf')
   }
 
-  // ---------- Correo: manual (adjuntar tú mismo). Abrimos el correo PRIMERO,
-  // de forma síncrona dentro del mismo clic del usuario: los navegadores de
-  // celular solo permiten abrir apps externas (mailto:, wa.me) mientras dura
-  // el "gesto" del clic. Si eso se dispara después de esperar (await) una
-  // tarea asíncrona como generar el PDF, el celular simplemente lo ignora —
-  // que es justo el "no hace nada" que viste. El PDF se descarga después,
-  // ya no necesita ese permiso. ----------
+  // ---------- Correo: manual (adjuntar tú mismo). Ya NO descarga el PDF de
+  // nuevo — ese archivo ya se descargó cuando se creó el registro (o al
+  // marcarlo como contratado); aquí solo se abre el correo con la plantilla
+  // lista, para no acumular descargas repetidas. Si necesitas el PDF otra
+  // vez, está el botón "PDF" a un lado. Abrimos el correo de inmediato, de
+  // forma síncrona: los celulares solo permiten abrir apps externas
+  // mientras dura el "gesto" del clic. ----------
   function sendByEmail(rec) {
     if (!isValidEmail(rec.client_email)) {
       alert('Este cliente no cuenta con un correo capturado (o no tiene un formato válido). Edita el registro para agregarlo antes de enviarlo por correo.')
@@ -74,10 +75,9 @@ export default function HistorialPage() {
     const subject = fillTemplate(subjectTpl, rec, config)
     const body = fillTemplate(bodyTpl, rec, config)
     window.location.href = `mailto:${rec.client_email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
-    downloadPdf(rec)
   }
 
-  // ---------- WhatsApp: mismo principio — abrir primero, descargar después. ----------
+  // ---------- WhatsApp: mismo principio, ya sin descarga automática. ----------
   function sendByWhatsapp(rec) {
     if (!isValidPhone10(rec.client_phone)) {
       alert('Este cliente no cuenta con un teléfono capturado a 10 dígitos. Edita el registro para agregarlo antes de enviarlo por WhatsApp.')
@@ -88,11 +88,10 @@ export default function HistorialPage() {
     const waTpl = isReceipt ? config.receipt_whatsapp_template : config.whatsapp_template
     const text = fillTemplate(waTpl, rec, config)
     window.open(`https://wa.me/52${digits}?text=${encodeURIComponent(text)}`, '_blank')
-    downloadPdf(rec)
   }
 
   async function convertToReceipt(src) {
-    const folio = makeFolio('recibo', config)
+    const folio = await nextFolio('recibo')
     const payload = {
       folio,
       status: 'recibo',
@@ -104,9 +103,8 @@ export default function HistorialPage() {
     }
     const { data: rec, error } = await supabase.from('quotes').insert(payload).select().single()
     if (error) { alert('No se pudo generar el recibo: ' + error.message); return }
-    await supabase.from('app_config').update({ next_receipt_number: config.next_receipt_number + 1 }).eq('id', 1)
     await load()
-    await downloadPdf(rec)
+    await downloadPdf(rec) // aquí sí se descarga: es la primera vez que existe este recibo
   }
 
   async function deleteRecord(rec) {
