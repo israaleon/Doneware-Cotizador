@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { fmt, makeFolio, isValidEmail, isValidPhone10 } from '@/lib/calc'
 import { fillTemplate } from '@/lib/templates'
 import { buildPdfDoc } from '@/lib/pdf'
+import SendMenu from '@/components/SendMenu'
 
 const PAGE_SIZE = 20
 
@@ -27,8 +28,6 @@ export default function HistorialPage() {
     setConfig(cfg)
   }
   useEffect(() => { load() }, [])
-
-  // Cada vez que cambia un filtro, regresamos a la página 1.
   useEffect(() => { setPage(1) }, [searchText, searchDate, typeFilter])
 
   const filtered = useMemo(() => {
@@ -57,35 +56,39 @@ export default function HistorialPage() {
     doc.save(rec.folio + '.pdf')
   }
 
-  async function sendByEmail(rec) {
-    let email = rec.client_email
-    if (!isValidEmail(email)) {
-      email = window.prompt('Escribe un correo válido para el cliente (ejemplo: nombre@dominio.com):', email || '')
-      if (!email) return
-      if (!isValidEmail(email)) { alert('Ese correo no tiene un formato válido.'); return }
+  // ---------- Correo: manual (adjuntar tú mismo). Abrimos el correo PRIMERO,
+  // de forma síncrona dentro del mismo clic del usuario: los navegadores de
+  // celular solo permiten abrir apps externas (mailto:, wa.me) mientras dura
+  // el "gesto" del clic. Si eso se dispara después de esperar (await) una
+  // tarea asíncrona como generar el PDF, el celular simplemente lo ignora —
+  // que es justo el "no hace nada" que viste. El PDF se descarga después,
+  // ya no necesita ese permiso. ----------
+  function sendByEmail(rec) {
+    if (!isValidEmail(rec.client_email)) {
+      alert('Este cliente no cuenta con un correo capturado (o no tiene un formato válido). Edita el registro para agregarlo antes de enviarlo por correo.')
+      return
     }
-    await downloadPdf(rec)
     const isReceipt = rec.status === 'recibo'
     const subjectTpl = isReceipt ? config.receipt_email_subject_template : config.email_subject_template
     const bodyTpl = isReceipt ? config.receipt_email_body_template : config.email_body_template
     const subject = fillTemplate(subjectTpl, rec, config)
     const body = fillTemplate(bodyTpl, rec, config)
-    window.location.href = `mailto:${email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    window.location.href = `mailto:${rec.client_email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+    downloadPdf(rec)
   }
 
-  async function sendByWhatsapp(rec) {
-    let digits = (rec.client_phone || '').replace(/\D/g, '')
-    if (!isValidPhone10(digits)) {
-      const input = window.prompt('Escribe el teléfono del cliente (10 dígitos):', digits || '')
-      if (!input) return
-      digits = input.replace(/\D/g, '')
-      if (!isValidPhone10(digits)) { alert('El teléfono debe tener exactamente 10 dígitos.'); return }
+  // ---------- WhatsApp: mismo principio — abrir primero, descargar después. ----------
+  function sendByWhatsapp(rec) {
+    if (!isValidPhone10(rec.client_phone)) {
+      alert('Este cliente no cuenta con un teléfono capturado a 10 dígitos. Edita el registro para agregarlo antes de enviarlo por WhatsApp.')
+      return
     }
-    await downloadPdf(rec)
+    const digits = rec.client_phone.replace(/\D/g, '')
     const isReceipt = rec.status === 'recibo'
     const waTpl = isReceipt ? config.receipt_whatsapp_template : config.whatsapp_template
     const text = fillTemplate(waTpl, rec, config)
     window.open(`https://wa.me/52${digits}?text=${encodeURIComponent(text)}`, '_blank')
+    downloadPdf(rec)
   }
 
   async function convertToReceipt(src) {
@@ -164,8 +167,9 @@ export default function HistorialPage() {
                 <div><span className={`badge ${q.status === 'recibo' ? 'rec' : 'cot'}`}>{q.status === 'recibo' ? 'RECIBO' : 'COTIZACIÓN'}</span></div>
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                   <button className="btn ghost small" onClick={() => downloadPdf(q)}>PDF</button>
-                  <button className="btn ghost small" onClick={() => sendByEmail(q)}>Correo</button>
-                  <button className="btn ghost small" onClick={() => sendByWhatsapp(q)}>WhatsApp</button>
+
+                  <SendMenu onEmail={() => sendByEmail(q)} onWhatsapp={() => sendByWhatsapp(q)} />
+
                   {q.status === 'cotizacion' && (
                     <button className="btn ghost small" onClick={() => router.push(`/cotizar?edit=${q.id}`)}>Editar</button>
                   )}

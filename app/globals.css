@@ -117,6 +117,17 @@ table.datatable td{ padding:8px; border-bottom:1px solid #EEF0F1; }
 .hist-row{ display:grid; grid-template-columns: 1fr 1.3fr .9fr .8fr auto; gap:10px; align-items:center; padding:14px 10px; border-bottom:1px solid #EEF0F1; font-size:13px; border-radius:var(--radius-sm); transition:background-color .15s ease; }
 .hist-row:hover{ background:rgba(21,27,35,.02); }
 .hist-search-grid{ display:grid; grid-template-columns: 2fr 1fr 1fr; gap:12px; }
+
+.send-menu-popover{
+  position:fixed; background:#fff; border:1px solid var(--line); border-radius:var(--radius-sm);
+  box-shadow:var(--shadow-md); min-width:170px; z-index:200; overflow:hidden;
+}
+.send-menu-popover button{
+  display:flex; align-items:center; width:100%; text-align:left; padding:11px 14px; background:transparent;
+  border:none; border-bottom:1px solid var(--line); font-size:13px; cursor:pointer; color:var(--ink);
+}
+.send-menu-popover button:last-child{ border-bottom:none; }
+.send-menu-popover button:hover{ background:var(--paper); color:var(--teal-dark); }
 .cat-add-grid{ display:grid; grid-template-columns: 2fr 1.1fr 1fr auto; gap:8px; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
 
 .muted{ color:var(--steel); font-size:12px; }
