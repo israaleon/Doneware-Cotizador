@@ -9,6 +9,7 @@ const ITEMS = [
   { href: '/cotizar', label: 'Nueva cotización' },
   { href: '/historial', label: 'Historial' },
   { href: '/catalogo', label: 'Catálogo y precios' },
+  { href: '/cotizador-productos', label: 'Cotizador de productos' },
   { href: '/configuracion', label: 'Configuración' },
 ]
 
