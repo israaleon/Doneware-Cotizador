@@ -4,6 +4,7 @@
 // valor de tu variable de entorno CRON_SECRET — por eso basta con compararlo.
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { fetchMLItem } from '@/lib/mercadolibre'
+import { getValidAccessToken } from '@/lib/mlAuth'
 
 export async function GET(request) {
   const authHeader = request.headers.get('authorization') || ''
@@ -18,11 +19,18 @@ export async function GET(request) {
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
+  let mlToken
+  try {
+    mlToken = await getValidAccessToken()
+  } catch (err) {
+    return Response.json({ error: err.message }, { status: 500 })
+  }
+
   const results = []
 
   for (const product of products || []) {
     try {
-      const item = await fetchMLItem(product.ml_item_id)
+      const item = await fetchMLItem(product.ml_item_id, mlToken)
       const newPrice = item.price
       const oldPrice = product.current_price
 

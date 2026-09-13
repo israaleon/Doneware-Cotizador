@@ -1,6 +1,7 @@
 // app/api/ml-lookup/route.js
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { lookupProductByUrl } from '@/lib/mercadolibre'
+import { getValidAccessToken } from '@/lib/mlAuth'
 
 export async function POST(request) {
   try {
@@ -13,7 +14,8 @@ export async function POST(request) {
     const { url } = await request.json()
     if (!url) return Response.json({ error: 'Falta la URL.' }, { status: 400 })
 
-    const product = await lookupProductByUrl(url)
+    const mlToken = await getValidAccessToken()
+    const product = await lookupProductByUrl(url, mlToken)
     return Response.json(product)
   } catch (err) {
     return Response.json({ error: err.message || 'No se pudo consultar el producto.' }, { status: 400 })

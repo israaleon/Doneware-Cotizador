@@ -1,7 +1,44 @@
 // app/configuracion/page.js
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
+
+function MLConnectPanel() {
+  const params = useSearchParams()
+  const mlResult = params.get('ml') // 'success' | 'error' | null
+  const [status, setStatus] = useState(null)
+
+  async function loadStatus() {
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/ml-status', { headers: { Authorization: `Bearer ${session?.access_token}` } })
+    if (res.ok) setStatus(await res.json())
+  }
+  useEffect(() => { loadStatus() }, [mlResult])
+
+  return (
+    <div className="panel">
+      <h3>Conexión con Mercado Libre</h3>
+      {mlResult === 'success' && <div className="helptext" style={{ color: 'var(--teal-dark)', marginBottom: 10 }}>✓ Cuenta conectada correctamente.</div>}
+      {mlResult === 'error' && <div className="fielderr" style={{ marginBottom: 10 }}>No se pudo conectar tu cuenta. Intenta de nuevo.</div>}
+
+      {status?.connected ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <span className="badge rec">CONECTADO</span>
+          <span className="muted">desde {status.connectedAt ? new Date(status.connectedAt).toLocaleDateString('es-MX') : ''}</span>
+          <a className="btn ghost small" href="/api/ml-oauth/start" style={{ marginLeft: 'auto' }}>Volver a conectar</a>
+        </div>
+      ) : (
+        <div>
+          <div className="helptext" style={{ marginBottom: 10 }}>
+            Necesario para que "Cotizador de productos" pueda consultar precios en Mercado Libre.
+          </div>
+          <a className="btn teal small" href="/api/ml-oauth/start">Conectar con Mercado Libre</a>
+        </div>
+      )}
+    </div>
+  )
+}
 
 export default function ConfiguracionPage() {
   const [config, setConfig] = useState(null)
@@ -40,6 +77,8 @@ export default function ConfiguracionPage() {
     <div>
       <h2 className="pagetitle">Configuración</h2>
       <div className="pagesub">Estos datos aparecen en tus cotizaciones, recibos y mensajes.</div>
+
+      <Suspense fallback={null}><MLConnectPanel /></Suspense>
 
       <div className="panel">
         <h3>Datos de la empresa</h3>
