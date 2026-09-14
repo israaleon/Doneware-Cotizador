@@ -8,7 +8,8 @@ export async function GET() {
   if (!process.env.APP_URL) {
     return new Response('Falta configurar la variable de entorno APP_URL.', { status: 500 })
   }
-  const redirectUri = `${process.env.APP_URL}/api/ml-oauth/callback`
+  const base = process.env.APP_URL.replace(/\/+$/, '') // quita cualquier "/" sobrante al final
+  const redirectUri = `${base}/api/ml-oauth/callback`
   const authUrl = new URL('https://auth.mercadolibre.com.mx/authorization')
   authUrl.searchParams.set('response_type', 'code')
   authUrl.searchParams.set('client_id', process.env.ML_CLIENT_ID)

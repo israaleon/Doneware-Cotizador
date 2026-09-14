@@ -4,7 +4,7 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 export async function GET(request) {
   const reqUrl = new URL(request.url)
   const code = reqUrl.searchParams.get('code')
-  const appUrl = process.env.APP_URL
+  const appUrl = (process.env.APP_URL || '').replace(/\/+$/, '') // quita cualquier "/" sobrante al final
 
   if (!code) {
     return Response.redirect(`${appUrl}/configuracion?ml=error`, 302)
