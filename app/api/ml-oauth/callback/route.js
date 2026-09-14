@@ -4,13 +4,14 @@ import { supabaseAdmin } from '@/lib/supabaseAdmin'
 export async function GET(request) {
   const reqUrl = new URL(request.url)
   const code = reqUrl.searchParams.get('code')
-  const origin = reqUrl.origin
+  const appUrl = process.env.APP_URL
 
   if (!code) {
-    return Response.redirect(`${origin}/configuracion?ml=error`, 302)
+    return Response.redirect(`${appUrl}/configuracion?ml=error`, 302)
   }
 
-  const redirectUri = `${origin}/api/ml-oauth/callback`
+  // Mismo redirect_uri fijo que se mandó en /start — debe coincidir exacto.
+  const redirectUri = `${appUrl}/api/ml-oauth/callback`
   const res = await fetch('https://api.mercadolibre.com/oauth/token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -25,7 +26,7 @@ export async function GET(request) {
   const json = await res.json()
   if (!res.ok) {
     console.error('ML OAuth error:', json)
-    return Response.redirect(`${origin}/configuracion?ml=error`, 302)
+    return Response.redirect(`${appUrl}/configuracion?ml=error`, 302)
   }
 
   const expiresAt = new Date(Date.now() + json.expires_in * 1000).toISOString()
@@ -38,5 +39,5 @@ export async function GET(request) {
     connected_at: new Date().toISOString(),
   })
 
-  return Response.redirect(`${origin}/configuracion?ml=success`, 302)
+  return Response.redirect(`${appUrl}/configuracion?ml=success`, 302)
 }
