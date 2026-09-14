@@ -14,5 +14,6 @@ export async function GET() {
   authUrl.searchParams.set('response_type', 'code')
   authUrl.searchParams.set('client_id', process.env.ML_CLIENT_ID)
   authUrl.searchParams.set('redirect_uri', redirectUri)
+  authUrl.searchParams.set('scope', 'offline_access read')
   return Response.redirect(authUrl.toString(), 302)
 }
