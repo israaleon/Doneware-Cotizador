@@ -3,8 +3,7 @@
 // quien la dispara, manda automáticamente el header Authorization con el
 // valor de tu variable de entorno CRON_SECRET — por eso basta con compararlo.
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
-import { fetchMLItem } from '@/lib/mercadolibre'
-import { getValidAccessToken } from '@/lib/mlAuth'
+import { lookupProductByUrl } from '@/lib/mercadolibre'
 
 export async function GET(request) {
   const authHeader = request.headers.get('authorization') || ''
@@ -19,18 +18,11 @@ export async function GET(request) {
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
-  let mlToken
-  try {
-    mlToken = await getValidAccessToken()
-  } catch (err) {
-    return Response.json({ error: err.message }, { status: 500 })
-  }
-
   const results = []
 
   for (const product of products || []) {
     try {
-      const item = await fetchMLItem(product.ml_item_id, mlToken)
+      const item = await lookupProductByUrl(product.ml_url)
       const newPrice = item.price
       const oldPrice = product.current_price
 
@@ -63,6 +55,8 @@ export async function GET(request) {
 
       results.push({ id: product.id, ok: true, oldPrice, newPrice })
     } catch (err) {
+      // Si Mercado Libre bloqueó la consulta o cambió su formato, no se cae
+      // todo el cron: se avisa con una notificación y se sigue con el resto.
       await supabaseAdmin.from('price_notifications').insert({
         product_id: product.id,
         product_name: product.name,
