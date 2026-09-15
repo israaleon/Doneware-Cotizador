@@ -128,20 +128,6 @@ table.datatable td{ padding:8px; border-bottom:1px solid #EEF0F1; }
 }
 .send-menu-popover button:last-child{ border-bottom:none; }
 .send-menu-popover button:hover{ background:var(--paper); color:var(--teal-dark); }
-
-/* ---------- Cotizador de productos ---------- */
-.product-tabs{ display:flex; gap:6px; margin-bottom:18px; flex-wrap:wrap; }
-.product-tab{
-  padding:8px 14px; border-radius:20px; font-size:12.5px; font-weight:600; text-decoration:none;
-  color:var(--steel); background:#fff; border:1px solid var(--line); display:flex; align-items:center; gap:6px;
-  transition: background .15s ease, color .15s ease, border-color .15s ease;
-}
-.product-tab:hover{ border-color:var(--steel); color:var(--ink); }
-.product-tab.active{ background:var(--ink); border-color:var(--ink); color:#fff; }
-.tab-badge{
-  background:var(--red); color:#fff; font-size:10px; font-weight:700; min-width:16px; height:16px;
-  border-radius:10px; display:inline-flex; align-items:center; justify-content:center; padding:0 4px;
-}
 .cat-add-grid{ display:grid; grid-template-columns: 2fr 1.1fr 1fr auto; gap:8px; margin-top:14px; padding-top:14px; border-top:1px solid var(--line); }
 
 .muted{ color:var(--steel); font-size:12px; }

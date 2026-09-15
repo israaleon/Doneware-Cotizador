@@ -75,10 +75,6 @@ export default function ConfiguracionPage() {
           </div>
           <div className="field"><label>Vigencia por defecto (días)</label><input type="number" min="1" value={config.valid_days} onChange={(e) => set('valid_days', parseInt(e.target.value) || 1)} /></div>
         </div>
-        <div className="field" style={{ maxWidth: 260 }}>
-          <label>Margen para "precio sugerido" en Cotizador de productos (%)</label>
-          <input type="number" min="0" step="0.1" value={config.quote_margin_percent ?? 20} onChange={(e) => set('quote_margin_percent', parseFloat(e.target.value) || 0)} />
-        </div>
       </div>
 
       <div className="panel">
