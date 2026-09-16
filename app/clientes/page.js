@@ -1,11 +1,13 @@
 // app/clientes/page.js
 'use client'
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 
 export default function ClientesPage() {
   const [clients, setClients] = useState([])
   const [searchText, setSearchText] = useState('')
+  const router = useRouter()
 
   async function load() {
     const { data } = await supabase.from('clients').select('*').order('name')
@@ -47,7 +49,7 @@ export default function ClientesPage() {
         ) : (
           <div className="table-scroll">
             <table className="datatable">
-              <thead><tr><th>Nombre</th><th>Teléfono</th><th>Correo</th><th>Dirección</th></tr></thead>
+              <thead><tr><th>Nombre</th><th>Teléfono</th><th>Correo</th><th>Dirección</th><th></th></tr></thead>
               <tbody>
                 {filtered.map((c) => (
                   <tr key={c.id}>
@@ -55,6 +57,10 @@ export default function ClientesPage() {
                     <td><input value={c.phone || ''} onChange={(e) => updateField(c.id, 'phone', e.target.value)} onBlur={() => saveRow(c.id)} /></td>
                     <td><input value={c.email || ''} onChange={(e) => updateField(c.id, 'email', e.target.value)} onBlur={() => saveRow(c.id)} /></td>
                     <td><input value={c.address || ''} onChange={(e) => updateField(c.id, 'address', e.target.value)} onBlur={() => saveRow(c.id)} /></td>
+                    <td style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                      <button className="btn ghost small" onClick={() => router.push(`/clientes/${c.id}`)}>Ver cliente</button>
+                      <button className="btn teal small" onClick={() => router.push(`/cotizar?client=${c.id}`)}>Nueva cotización</button>
+                    </td>
                   </tr>
                 ))}
               </tbody>

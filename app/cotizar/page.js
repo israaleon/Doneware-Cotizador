@@ -36,6 +36,7 @@ function CotizarInner() {
   const router = useRouter()
   const params = useSearchParams()
   const editId = params.get('edit') // /cotizar?edit=<uuid> para editar un registro existente
+  const clientIdParam = params.get('client') // /cotizar?client=<uuid> viene de Clientes → Nueva cotización
 
   const [config, setConfig] = useState(null)
   const [catalog, setCatalog] = useState([])
@@ -47,6 +48,8 @@ function CotizarInner() {
   const [justAddedIdx, setJustAddedIdx] = useState(null)
   const [previewFolio, setPreviewFolio] = useState('')
   const [clientSuggestions, setClientSuggestions] = useState([])
+  const [clientMode, setClientMode] = useState(clientIdParam ? 'existente' : 'nuevo') // 'nuevo' | 'existente'
+  const [selectedClientId, setSelectedClientId] = useState(null)
 
   useEffect(() => {
     async function load() {
@@ -72,12 +75,23 @@ function CotizarInner() {
           return
         }
       }
+
+      if (clientIdParam) {
+        const { data: client } = await supabase.from('clients').select('*').eq('id', clientIdParam).single()
+        if (client) {
+          setSelectedClientId(client.id)
+          setDraft({ ...newDraft(cfg), client: { name: client.name || '', phone: client.phone || '', email: client.email || '', address: client.address || '' } })
+          setPreviewFolio(await nextFolio('cotizacion'))
+          return
+        }
+      }
+
       setDraft(newDraft(cfg))
       setPreviewFolio(await nextFolio('cotizacion'))
     }
     load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editId])
+  }, [editId, clientIdParam])
 
   useEffect(() => {
     if (justAddedIdx === null) return
@@ -91,15 +105,24 @@ function CotizarInner() {
   const displayFolio = editingRec ? editingRec.folio : (previewFolio || '…')
 
   function updateClient(field, value) {
+    if (field === 'name') setSelectedClientId(null) // escribir a mano ya no es "el mismo cliente elegido"
     setDraft((d) => ({ ...d, client: { ...d.client, [field]: value } }))
   }
 
   async function searchClientSuggestions(text) {
+    if (clientMode === 'nuevo') { setClientSuggestions([]); return }
     setClientSuggestions(await searchClients(text))
   }
   function applyClientSuggestion(c) {
+    setSelectedClientId(c.id)
     setDraft((d) => ({ ...d, client: { name: c.name || '', phone: c.phone || '', email: c.email || '', address: c.address || '' } }))
     setClientSuggestions([])
+  }
+  function switchClientMode(mode) {
+    setClientMode(mode)
+    setSelectedClientId(null)
+    setClientSuggestions([])
+    if (mode === 'nuevo') setDraft((d) => ({ ...d, client: { name: '', phone: '', email: '', address: '' } }))
   }
   function addFromCatalog(catalogId) {
     const p = catalog.find((c) => c.id === catalogId)
@@ -145,7 +168,7 @@ function CotizarInner() {
 
   async function saveQuote() {
     setSaving(true)
-    const clientId = await findOrCreateClient(draft.client)
+    const clientId = selectedClientId || await findOrCreateClient(draft.client)
     const t = calcTotals(draft.items, draft.discountType, draft.discountValue, config.apply_iva, config.iva_rate)
     const payload = {
       client_id: clientId,
@@ -203,6 +226,24 @@ function CotizarInner() {
         <div>
           <div className="panel">
             <h3>Datos del cliente</h3>
+            {!editingRec && !clientIdParam && (
+              <div className="field" style={{ display: 'flex', gap: 18, marginBottom: 14 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 0, cursor: 'pointer' }}>
+                  <input type="radio" style={{ width: 'auto' }} checked={clientMode === 'nuevo'} onChange={() => switchClientMode('nuevo')} /> Nuevo cliente
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 0, cursor: 'pointer' }}>
+                  <input type="radio" style={{ width: 'auto' }} checked={clientMode === 'existente'} onChange={() => switchClientMode('existente')} /> Cliente existente
+                </label>
+              </div>
+            )}
+            {clientIdParam && (
+              <div className="helptext" style={{ marginBottom: 12 }}>
+                Cliente existente — los datos se precargaron; puedes ajustarlos solo para esta cotización, sin afectar el registro maestro.
+              </div>
+            )}
+            {clientMode === 'existente' && !selectedClientId && !clientIdParam && (
+              <div className="helptext" style={{ marginBottom: 4 }}>Escribe el nombre para buscar entre tus clientes ya registrados.</div>
+            )}
             <div className="fieldrow">
               <div className="field" style={{ position: 'relative' }}>
                 <label>Nombre / empresa</label>
