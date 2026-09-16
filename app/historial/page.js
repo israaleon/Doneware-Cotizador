@@ -109,6 +109,7 @@ export default function HistorialPage() {
       client_id: src.client_id,
       items: src.items, discount_type: src.discount_type, discount_value: src.discount_value,
       notes: src.notes, valid_days: src.valid_days,
+      install_time_value: src.install_time_value, install_time_unit: src.install_time_unit,
       subtotal: src.subtotal, discount: src.discount, iva: src.iva, iva_rate: src.iva_rate, apply_iva: src.apply_iva, total: src.total,
     }
     const { data: rec, error } = await supabase.from('quotes').insert(payload).select().single()

@@ -16,6 +16,8 @@ function newDraft(config) {
     discountValue: 0,
     notes: '',
     validDays: config?.valid_days || 15,
+    installTimeValue: '',
+    installTimeUnit: 'horas',
   }
 }
 
@@ -71,6 +73,8 @@ function CotizarInner() {
             discountValue: rec.discount_value,
             notes: rec.notes || '',
             validDays: rec.valid_days,
+            installTimeValue: rec.install_time_value ?? '',
+            installTimeUnit: rec.install_time_unit || 'horas',
           })
           return
         }
@@ -181,6 +185,8 @@ function CotizarInner() {
       discount_value: draft.discountValue,
       notes: draft.notes,
       valid_days: draft.validDays,
+      install_time_value: draft.installTimeValue === '' ? null : draft.installTimeValue,
+      install_time_unit: draft.installTimeValue === '' ? null : draft.installTimeUnit,
       subtotal: t.subtotal,
       discount: t.discount,
       iva: t.iva,
@@ -351,9 +357,29 @@ function CotizarInner() {
                 {errors.discount && <div className="fielderr">{errors.discount}</div>}
               </div>
             </div>
-            <div className="field" style={{ maxWidth: 200 }}>
-              <label>Vigencia (días)</label>
-              <input type="number" min="1" value={draft.validDays} onChange={(e) => setDraft((d) => ({ ...d, validDays: parseInt(e.target.value) || 1 }))} />
+            <div className="fieldrow">
+              <div className="field" style={{ maxWidth: 200 }}>
+                <label>Vigencia (días)</label>
+                <input type="number" min="1" value={draft.validDays} onChange={(e) => setDraft((d) => ({ ...d, validDays: parseInt(e.target.value) || 1 }))} />
+              </div>
+              <div className="field">
+                <label>Tiempo de instalación estimado (opcional)</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="number" min="0" step="0.5" style={{ flex: 1 }}
+                    value={draft.installTimeValue}
+                    onChange={(e) => setDraft((d) => ({ ...d, installTimeValue: e.target.value === '' ? '' : parseFloat(e.target.value) }))}
+                  />
+                  <select
+                    style={{ flex: 1 }}
+                    value={draft.installTimeUnit}
+                    onChange={(e) => setDraft((d) => ({ ...d, installTimeUnit: e.target.value }))}
+                  >
+                    <option value="horas">Horas</option>
+                    <option value="dias">Días</option>
+                  </select>
+                </div>
+              </div>
             </div>
             <div className="field">
               <label>Notas para el cliente (opcional)</label>
@@ -368,7 +394,12 @@ function CotizarInner() {
               {config.logo_url && <img src={config.logo_url} alt="" style={{ width: 30, height: 30, objectFit: 'contain', background: '#fff', borderRadius: 3, padding: 2 }} />}
               <div>
                 <div className="co">{config.company_name}</div>
-                <div className="meta">FOLIO {displayFolio} · VIGENCIA {draft.validDays} DÍAS</div>
+                <div className="meta">
+                  FOLIO {displayFolio} · VIGENCIA {draft.validDays} DÍAS
+                  {draft.installTimeValue !== '' && draft.installTimeValue != null && (
+                    <> · INSTALACIÓN EST. {draft.installTimeValue} {draft.installTimeUnit === 'dias' ? 'DÍAS' : 'HORAS'}</>
+                  )}
+                </div>
               </div>
             </div>
             <div className="ticket-body">
