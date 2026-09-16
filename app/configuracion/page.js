@@ -8,6 +8,8 @@ function GoogleConnectPanel() {
   const params = useSearchParams()
   const googleResult = params.get('google')
   const [status, setStatus] = useState(null)
+  const [connecting, setConnecting] = useState(false)
+  const [connectError, setConnectError] = useState('')
 
   async function loadStatus() {
     const { data: { session } } = await supabase.auth.getSession()
@@ -17,13 +19,30 @@ function GoogleConnectPanel() {
   useEffect(() => { loadStatus() }, [googleResult])
 
   async function connect() {
-    const { data: { session } } = await supabase.auth.getSession()
-    const res = await fetch('/api/google-oauth/init', {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${session?.access_token}` },
-    })
-    const json = await res.json()
-    if (json.url) window.location.href = json.url
+    setConnecting(true)
+    setConnectError('')
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { setConnectError('No hay sesión activa — vuelve a iniciar sesión e intenta de nuevo.'); setConnecting(false); return }
+
+      const res = await fetch('/api/google-oauth/init', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}` },
+      })
+      const text = await res.text()
+      let json = {}
+      try { json = JSON.parse(text) } catch (e) { /* la respuesta no era JSON */ }
+
+      if (!res.ok || !json.url) {
+        setConnectError(`No se pudo iniciar la conexión (código ${res.status}): ${json.error || text.slice(0, 300) || 'sin más detalle'}`)
+        setConnecting(false)
+        return
+      }
+      window.location.assign(json.url)
+    } catch (err) {
+      setConnectError('No se pudo iniciar la conexión: ' + err.message)
+      setConnecting(false)
+    }
   }
 
   return (
@@ -31,6 +50,7 @@ function GoogleConnectPanel() {
       <h3>Mi Google Calendar</h3>
       {googleResult === 'success' && <div className="helptext" style={{ color: 'var(--teal-dark)', marginBottom: 10 }}>✓ Cuenta conectada correctamente.</div>}
       {googleResult === 'error' && <div className="fielderr" style={{ marginBottom: 10 }}>No se pudo conectar tu cuenta. Intenta de nuevo.</div>}
+      {connectError && <div className="fielderr" style={{ marginBottom: 10 }}>{connectError}</div>}
       <div className="helptext" style={{ marginBottom: 10 }}>
         Cada persona del equipo conecta su propio calendario — los servicios que agendes se crean en el tuyo, no en el de nadie más.
       </div>
@@ -38,10 +58,14 @@ function GoogleConnectPanel() {
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
           <span className="badge rec">CONECTADO</span>
           <span className="muted">{status.googleEmail}</span>
-          <button className="btn ghost small" style={{ marginLeft: 'auto' }} onClick={connect}>Volver a conectar</button>
+          <button className="btn ghost small" style={{ marginLeft: 'auto' }} onClick={connect} disabled={connecting}>
+            {connecting ? 'Conectando…' : 'Volver a conectar'}
+          </button>
         </div>
       ) : (
-        <button className="btn teal small" onClick={connect}>Conectar mi Google Calendar</button>
+        <button className="btn teal small" onClick={connect} disabled={connecting}>
+          {connecting ? 'Conectando…' : 'Conectar mi Google Calendar'}
+        </button>
       )}
     </div>
   )
