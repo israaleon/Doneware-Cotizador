@@ -13,6 +13,7 @@ const PAGE_SIZE = 20
 
 export default function HistorialPage() {
   const [quotes, setQuotes] = useState([])
+  const [services, setServices] = useState([]) // para saber qué cotizaciones ya tienen servicio
   const [config, setConfig] = useState(null)
   const [searchText, setSearchText] = useState('')
   const [searchDate, setSearchDate] = useState('')
@@ -21,15 +22,23 @@ export default function HistorialPage() {
   const router = useRouter()
 
   async function load() {
-    const [{ data: q }, { data: cfg }] = await Promise.all([
+    const [{ data: q }, { data: cfg }, { data: svc }] = await Promise.all([
       supabase.from('quotes').select('*').order('created_at', { ascending: false }),
       supabase.from('app_config').select('*').eq('id', 1).single(),
+      supabase.from('services').select('id, quote_id'),
     ])
     setQuotes(q || [])
     setConfig(cfg)
+    setServices(svc || [])
   }
   useEffect(() => { load() }, [])
   useEffect(() => { setPage(1) }, [searchText, searchDate, typeFilter])
+
+  const serviceByQuoteId = useMemo(() => {
+    const map = new Map()
+    services.forEach((s) => map.set(s.quote_id, s))
+    return map
+  }, [services])
 
   const filtered = useMemo(() => {
     const text = searchText.trim().toLowerCase()
@@ -97,12 +106,16 @@ export default function HistorialPage() {
       status: 'recibo',
       related_folio: src.folio,
       client_name: src.client_name, client_phone: src.client_phone, client_email: src.client_email, client_address: src.client_address,
+      client_id: src.client_id,
       items: src.items, discount_type: src.discount_type, discount_value: src.discount_value,
       notes: src.notes, valid_days: src.valid_days,
       subtotal: src.subtotal, discount: src.discount, iva: src.iva, iva_rate: src.iva_rate, apply_iva: src.apply_iva, total: src.total,
     }
     const { data: rec, error } = await supabase.from('quotes').insert(payload).select().single()
     if (error) { alert('No se pudo generar el recibo: ' + error.message); return }
+    // La cotización original pasa a "Contratado" — ya no se borra ese estado
+    // aunque pasen los días, y desde aquí ya se puede agendar el servicio.
+    await supabase.from('quotes').update({ contracted: true }).eq('id', src.id)
     await load()
     await downloadPdf(rec) // aquí sí se descarga: es la primera vez que existe este recibo
   }
@@ -162,17 +175,26 @@ export default function HistorialPage() {
                   <div className="muted">{q.client_phone}</div>
                 </div>
                 <div style={{ fontFamily: 'var(--mono)' }}>{fmt(q.total)}</div>
-                <div><span className={`badge ${q.status === 'recibo' ? 'rec' : 'cot'}`}>{q.status === 'recibo' ? 'RECIBO' : 'COTIZACIÓN'}</span></div>
+                <div>
+                  <span className={`badge ${q.status === 'recibo' ? 'rec' : 'cot'}`}>{q.status === 'recibo' ? 'RECIBO' : 'COTIZACIÓN'}</span>
+                  {q.status === 'cotizacion' && q.contracted && <span className="badge rec" style={{ marginLeft: 4 }}>CONTRATADO</span>}
+                </div>
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                   <button className="btn ghost small" onClick={() => downloadPdf(q)}>PDF</button>
 
                   <SendMenu onEmail={() => sendByEmail(q)} onWhatsapp={() => sendByWhatsapp(q)} />
 
-                  {q.status === 'cotizacion' && (
+                  {q.status === 'cotizacion' && !q.contracted && (
                     <button className="btn ghost small" onClick={() => router.push(`/cotizar?edit=${q.id}`)}>Editar</button>
                   )}
-                  {q.status === 'cotizacion' && (
+                  {q.status === 'cotizacion' && !q.contracted && (
                     <button className="btn teal small" onClick={() => convertToReceipt(q)}>Marcar contratado</button>
+                  )}
+                  {q.status === 'cotizacion' && q.contracted && !serviceByQuoteId.get(q.id) && (
+                    <button className="btn teal small" onClick={() => router.push(`/servicios/nuevo?quoteId=${q.id}`)}>Agendar servicio</button>
+                  )}
+                  {q.status === 'cotizacion' && q.contracted && serviceByQuoteId.get(q.id) && (
+                    <button className="btn ghost small" onClick={() => router.push(`/servicios/${serviceByQuoteId.get(q.id).id}`)}>Ver servicio</button>
                   )}
                   <button className="iconbtn" title="Eliminar" onClick={() => deleteRecord(q)}>✕</button>
                 </div>

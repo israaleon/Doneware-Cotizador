@@ -8,6 +8,8 @@ import { supabase } from '@/lib/supabaseClient'
 const ITEMS = [
   { href: '/cotizar', label: 'Nueva cotización' },
   { href: '/historial', label: 'Historial' },
+  { href: '/servicios', label: 'Servicios' },
+  { href: '/clientes', label: 'Clientes' },
   { href: '/catalogo', label: 'Catálogo y precios' },
   { href: '/configuracion', label: 'Configuración' },
 ]

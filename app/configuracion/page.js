@@ -1,7 +1,51 @@
 // app/configuracion/page.js
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
+
+function GoogleConnectPanel() {
+  const params = useSearchParams()
+  const googleResult = params.get('google')
+  const [status, setStatus] = useState(null)
+
+  async function loadStatus() {
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/google-oauth/status', { headers: { Authorization: `Bearer ${session?.access_token}` } })
+    if (res.ok) setStatus(await res.json())
+  }
+  useEffect(() => { loadStatus() }, [googleResult])
+
+  async function connect() {
+    const { data: { session } } = await supabase.auth.getSession()
+    const res = await fetch('/api/google-oauth/init', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${session?.access_token}` },
+    })
+    const json = await res.json()
+    if (json.url) window.location.href = json.url
+  }
+
+  return (
+    <div className="panel">
+      <h3>Mi Google Calendar</h3>
+      {googleResult === 'success' && <div className="helptext" style={{ color: 'var(--teal-dark)', marginBottom: 10 }}>✓ Cuenta conectada correctamente.</div>}
+      {googleResult === 'error' && <div className="fielderr" style={{ marginBottom: 10 }}>No se pudo conectar tu cuenta. Intenta de nuevo.</div>}
+      <div className="helptext" style={{ marginBottom: 10 }}>
+        Cada persona del equipo conecta su propio calendario — los servicios que agendes se crean en el tuyo, no en el de nadie más.
+      </div>
+      {status?.connected ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <span className="badge rec">CONECTADO</span>
+          <span className="muted">{status.googleEmail}</span>
+          <button className="btn ghost small" style={{ marginLeft: 'auto' }} onClick={connect}>Volver a conectar</button>
+        </div>
+      ) : (
+        <button className="btn teal small" onClick={connect}>Conectar mi Google Calendar</button>
+      )}
+    </div>
+  )
+}
 
 export default function ConfiguracionPage() {
   const [config, setConfig] = useState(null)
@@ -40,6 +84,8 @@ export default function ConfiguracionPage() {
     <div>
       <h2 className="pagetitle">Configuración</h2>
       <div className="pagesub">Estos datos aparecen en tus cotizaciones, recibos y mensajes.</div>
+
+      <Suspense fallback={null}><GoogleConnectPanel /></Suspense>
 
       <div className="panel">
         <h3>Datos de la empresa</h3>

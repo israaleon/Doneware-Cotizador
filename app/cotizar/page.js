@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabaseClient'
 import { fmt, calcTotals, validateQuote } from '@/lib/calc'
 import { nextFolio } from '@/lib/folio'
 import { buildPdfDoc } from '@/lib/pdf'
+import { findOrCreateClient, searchClients } from '@/lib/clients'
 
 function newDraft(config) {
   return {
@@ -45,6 +46,7 @@ function CotizarInner() {
   const [selectedCatalogId, setSelectedCatalogId] = useState('')
   const [justAddedIdx, setJustAddedIdx] = useState(null)
   const [previewFolio, setPreviewFolio] = useState('')
+  const [clientSuggestions, setClientSuggestions] = useState([])
 
   useEffect(() => {
     async function load() {
@@ -91,6 +93,14 @@ function CotizarInner() {
   function updateClient(field, value) {
     setDraft((d) => ({ ...d, client: { ...d.client, [field]: value } }))
   }
+
+  async function searchClientSuggestions(text) {
+    setClientSuggestions(await searchClients(text))
+  }
+  function applyClientSuggestion(c) {
+    setDraft((d) => ({ ...d, client: { name: c.name || '', phone: c.phone || '', email: c.email || '', address: c.address || '' } }))
+    setClientSuggestions([])
+  }
   function addFromCatalog(catalogId) {
     const p = catalog.find((c) => c.id === catalogId)
     if (!p) return
@@ -135,8 +145,10 @@ function CotizarInner() {
 
   async function saveQuote() {
     setSaving(true)
+    const clientId = await findOrCreateClient(draft.client)
     const t = calcTotals(draft.items, draft.discountType, draft.discountValue, config.apply_iva, config.iva_rate)
     const payload = {
+      client_id: clientId,
       client_name: draft.client.name,
       client_phone: draft.client.phone,
       client_email: draft.client.email,
@@ -192,10 +204,25 @@ function CotizarInner() {
           <div className="panel">
             <h3>Datos del cliente</h3>
             <div className="fieldrow">
-              <div className="field">
+              <div className="field" style={{ position: 'relative' }}>
                 <label>Nombre / empresa</label>
-                <input className={errors.name ? 'input-error' : ''} value={draft.client.name} onChange={(e) => updateClient('name', e.target.value)} />
+                <input
+                  className={errors.name ? 'input-error' : ''}
+                  value={draft.client.name}
+                  onChange={(e) => { updateClient('name', e.target.value); searchClientSuggestions(e.target.value) }}
+                  onBlur={() => setTimeout(() => setClientSuggestions([]), 150)}
+                  autoComplete="off"
+                />
                 {errors.name && <div className="fielderr">{errors.name}</div>}
+                {clientSuggestions.length > 0 && (
+                  <div className="send-menu-popover" style={{ position: 'absolute', top: '100%', left: 0, right: 0, marginTop: 4 }}>
+                    {clientSuggestions.map((c) => (
+                      <button key={c.id} type="button" onClick={() => applyClientSuggestion(c)}>
+                        {c.name} {c.phone ? `· ${c.phone}` : ''}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
               <div className="field">
                 <label>Teléfono (10 dígitos)</label>
