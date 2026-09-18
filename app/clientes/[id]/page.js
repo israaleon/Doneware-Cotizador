@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { fmt } from '@/lib/calc'
 import { buildPdfDoc } from '@/lib/pdf'
+import { SERVICE_STATUS_LABEL, SERVICE_STATUS_BADGE } from '@/lib/serviceStatus'
 
 export default function ClienteDetallePage() {
   const { id } = useParams()
@@ -120,7 +121,7 @@ export default function ClienteDetallePage() {
                     <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                       <span className={`badge ${q.contracted ? 'rec' : 'cot'}`}>{q.contracted ? 'CONTRATADO' : 'PENDIENTE'}</span>
                       {receipt && <span className="badge rec">RECIBO</span>}
-                      {service && <span className="badge cot">{service.status.replace('_', ' ').toUpperCase()}</span>}
+                      {service && <span className={`badge ${SERVICE_STATUS_BADGE[service.status]}`}>{SERVICE_STATUS_LABEL[service.status]}</span>}
                     </div>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                       <button className="btn ghost small" onClick={() => downloadPdf(q)}>PDF</button>

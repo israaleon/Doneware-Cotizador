@@ -110,11 +110,21 @@ table.datatable td{ padding:8px; border-bottom:1px solid #EEF0F1; }
 .table-scroll{ overflow-x:auto; -webkit-overflow-scrolling:touch; }
 .table-scroll table.datatable{ min-width:520px; }
 
-.badge{ display:inline-block; font-family:var(--mono); font-size:10.5px; padding:3px 10px; border-radius:20px; font-weight:600; }
+.badge{ display:inline-block; font-family:var(--mono); font-size:10.5px; padding:3px 10px; border-radius:20px; font-weight:600; white-space:nowrap; }
 .badge.cot{ background:#FCE9CF; color:#8A5A16; }
 .badge.rec{ background:#D7F0EE; color:var(--teal-dark); }
+.badge.can{ background:#FBEAE6; color:var(--red); }
 
 .hist-row{ display:grid; grid-template-columns: 1fr 1.3fr .9fr .8fr auto; gap:10px; align-items:center; padding:14px 10px; border-bottom:1px solid #EEF0F1; font-size:13px; border-radius:var(--radius-sm); transition:background-color .15s ease; }
+/* En Historial las columnas de estatus y acciones reciben un ancho fijo
+   (ver app/historial/page.js) en vez de "auto"/fr — si no, cada fila calcula
+   su propio ancho según cuántos botones tiene y se ven "descuadradas" entre
+   sí, porque cada `.hist-row` es su propio grid independiente. Solo aplica
+   en escritorio: en móvil sigue apilándose a una columna (ver media query
+   más abajo). */
+@media (min-width: 769px){
+  .hist-row.hist-row-fixed{ grid-template-columns: 110px minmax(120px,1.3fr) 90px 170px 230px; }
+}
 .hist-row:hover{ background:rgba(21,27,35,.02); }
 .hist-search-grid{ display:grid; grid-template-columns: 2fr 1fr 1fr; gap:12px; }
 

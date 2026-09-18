@@ -8,6 +8,7 @@ import { nextFolio } from '@/lib/folio'
 import { fillTemplate } from '@/lib/templates'
 import { buildPdfDoc } from '@/lib/pdf'
 import SendMenu from '@/components/SendMenu'
+import { SERVICE_STATUS_LABEL, SERVICE_STATUS_BADGE } from '@/lib/serviceStatus'
 
 const PAGE_SIZE = 20
 
@@ -25,7 +26,7 @@ export default function HistorialPage() {
     const [{ data: q }, { data: cfg }, { data: svc }] = await Promise.all([
       supabase.from('quotes').select('*').order('created_at', { ascending: false }),
       supabase.from('app_config').select('*').eq('id', 1).single(),
-      supabase.from('services').select('id, quote_id'),
+      supabase.from('services').select('id, quote_id, status'),
     ])
     setQuotes(q || [])
     setConfig(cfg)
@@ -109,7 +110,6 @@ export default function HistorialPage() {
       client_id: src.client_id,
       items: src.items, discount_type: src.discount_type, discount_value: src.discount_value,
       notes: src.notes, valid_days: src.valid_days,
-      install_time_value: src.install_time_value, install_time_unit: src.install_time_unit,
       subtotal: src.subtotal, discount: src.discount, iva: src.iva, iva_rate: src.iva_rate, apply_iva: src.apply_iva, total: src.total,
     }
     const { data: rec, error } = await supabase.from('quotes').insert(payload).select().single()
@@ -166,7 +166,7 @@ export default function HistorialPage() {
         <>
           <div className="panel" style={{ padding: '6px 12px' }}>
             {pageItems.map((q) => (
-              <div className="hist-row" key={q.id}>
+              <div className="hist-row hist-row-fixed" key={q.id}>
                 <div>
                   <div style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{q.folio}</div>
                   <div className="muted">{new Date(q.created_at).toLocaleDateString('es-MX')}</div>
@@ -177,8 +177,15 @@ export default function HistorialPage() {
                 </div>
                 <div style={{ fontFamily: 'var(--mono)' }}>{fmt(q.total)}</div>
                 <div>
-                  <span className={`badge ${q.status === 'recibo' ? 'rec' : 'cot'}`}>{q.status === 'recibo' ? 'RECIBO' : 'COTIZACIÓN'}</span>
-                  {q.status === 'cotizacion' && q.contracted && <span className="badge rec" style={{ marginLeft: 4 }}>CONTRATADO</span>}
+                  {q.status === 'recibo' ? (
+                    <span className="badge rec">RECIBO</span>
+                  ) : q.contracted ? (
+                    <span className={`badge ${SERVICE_STATUS_BADGE[serviceByQuoteId.get(q.id)?.status || 'pendiente_agendar']}`}>
+                      {SERVICE_STATUS_LABEL[serviceByQuoteId.get(q.id)?.status || 'pendiente_agendar']}
+                    </span>
+                  ) : (
+                    <span className="badge cot">COTIZACIÓN</span>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
                   <button className="btn ghost small" onClick={() => downloadPdf(q)}>PDF</button>

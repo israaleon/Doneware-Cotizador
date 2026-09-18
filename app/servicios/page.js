@@ -3,21 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
-
-const STATUS_LABEL = {
-  pendiente_agendar: 'Pendiente de agendar',
-  agendado: 'Agendado',
-  confirmado: 'Confirmado',
-  realizado: 'Realizado',
-  cancelado: 'Cancelado',
-}
-const STATUS_BADGE = {
-  pendiente_agendar: 'cot',
-  agendado: 'rec',
-  confirmado: 'rec',
-  realizado: 'rec',
-  cancelado: 'cot',
-}
+import { SERVICE_STATUS_LABEL as STATUS_LABEL, SERVICE_STATUS_BADGE as STATUS_BADGE } from '@/lib/serviceStatus'
 
 export default function ServiciosPage() {
   const [services, setServices] = useState([])

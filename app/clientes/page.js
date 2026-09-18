@@ -31,6 +31,16 @@ export default function ClientesPage() {
     }).eq('id', id)
   }
 
+  async function deleteClient(c) {
+    const ok = window.confirm(
+      `¿Seguro que deseas eliminar a ${c.name || 'este cliente'}?\n\nAl eliminarlo se borrará permanentemente y no podrás recuperarlo.`
+    )
+    if (!ok) return
+    const { error } = await supabase.from('clients').delete().eq('id', c.id)
+    if (error) { alert('No se pudo eliminar: ' + error.message); return }
+    load()
+  }
+
   return (
     <div>
       <h2 className="pagetitle">Clientes</h2>
@@ -60,6 +70,7 @@ export default function ClientesPage() {
                     <td style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                       <button className="btn ghost small" onClick={() => router.push(`/clientes/${c.id}`)}>Ver cliente</button>
                       <button className="btn teal small" onClick={() => router.push(`/cotizar?client=${c.id}`)}>Nueva cotización</button>
+                      <button className="iconbtn" title="Eliminar cliente" onClick={() => deleteClient(c)}>✕</button>
                     </td>
                   </tr>
                 ))}

@@ -3,14 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
-
-const STATUS_OPTIONS = [
-  ['pendiente_agendar', 'Pendiente de agendar'],
-  ['agendado', 'Agendado'],
-  ['confirmado', 'Confirmado'],
-  ['realizado', 'Realizado'],
-  ['cancelado', 'Cancelado'],
-]
+import { SERVICE_STATUS_OPTIONS as STATUS_OPTIONS, durationToMinutes, minutesToDuration } from '@/lib/serviceStatus'
 
 function toDatetimeLocal(d) {
   if (!d) return ''
@@ -32,10 +25,14 @@ export default function EditarServicioPage() {
     const { data: svc } = await supabase.from('services').select('*').eq('id', id).single()
     if (!svc) return
     setService(svc)
+    const duration = svc.duration_value != null
+      ? { value: svc.duration_value, unit: svc.duration_unit || 'horas' }
+      : minutesToDuration(svc.duration_minutes)
     setForm({
       serviceType: svc.service_type || '',
       startAt: toDatetimeLocal(svc.start_at),
-      duration: svc.duration_minutes || 60,
+      durationValue: duration.value,
+      durationUnit: duration.unit,
       address: svc.address || '',
       notes: svc.notes || '',
       status: svc.status,
@@ -69,7 +66,9 @@ export default function EditarServicioPage() {
       service_type: form.serviceType,
       address: form.address,
       notes: form.notes,
-      duration_minutes: Number(form.duration) || 60,
+      duration_value: form.durationValue === '' ? null : form.durationValue,
+      duration_unit: form.durationUnit,
+      duration_minutes: durationToMinutes(form.durationValue, form.durationUnit) || 60,
       start_at: startAtIso,
       status: form.status === 'pendiente_agendar' && startAtIso ? 'agendado' : form.status,
       updated_at: new Date().toISOString(),
@@ -133,8 +132,22 @@ export default function EditarServicioPage() {
                 <input type="datetime-local" value={form.startAt} onChange={(e) => setForm((f) => ({ ...f, startAt: e.target.value }))} />
               </div>
               <div className="field">
-                <label>Duración (minutos)</label>
-                <input type="number" min="15" step="15" value={form.duration} onChange={(e) => setForm((f) => ({ ...f, duration: e.target.value }))} />
+                <label>Duración estimada</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input
+                    type="number" min="0" step="0.5" style={{ flex: 1 }}
+                    value={form.durationValue}
+                    onChange={(e) => setForm((f) => ({ ...f, durationValue: e.target.value === '' ? '' : parseFloat(e.target.value) }))}
+                  />
+                  <select
+                    style={{ flex: 1 }}
+                    value={form.durationUnit}
+                    onChange={(e) => setForm((f) => ({ ...f, durationUnit: e.target.value }))}
+                  >
+                    <option value="horas">Horas</option>
+                    <option value="dias">Días</option>
+                  </select>
+                </div>
               </div>
             </div>
             <div className="field">
