@@ -125,7 +125,6 @@ export default function ClienteDetallePage() {
                     </div>
                     <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
                       <button className="btn ghost small" onClick={() => downloadPdf(q)}>PDF</button>
-                      <button className="btn ghost small" onClick={() => router.push(`/cotizar?edit=${q.id}`)}>Ver</button>
                     </div>
                   </div>
                 )

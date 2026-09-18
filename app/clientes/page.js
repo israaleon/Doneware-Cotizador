@@ -21,16 +21,6 @@ export default function ClientesPage() {
     return clients.filter((c) => `${c.name} ${c.phone} ${c.email}`.toLowerCase().includes(t))
   }, [clients, searchText])
 
-  function updateField(id, field, value) {
-    setClients((prev) => prev.map((c) => (c.id === id ? { ...c, [field]: value } : c)))
-  }
-  async function saveRow(id) {
-    const row = clients.find((c) => c.id === id)
-    await supabase.from('clients').update({
-      name: row.name, phone: row.phone, email: row.email, address: row.address, updated_at: new Date().toISOString(),
-    }).eq('id', id)
-  }
-
   async function deleteClient(c) {
     const ok = window.confirm(
       `¿Seguro que deseas eliminar a ${c.name || 'este cliente'}?\n\nAl eliminarlo se borrará permanentemente y no podrás recuperarlo.`
@@ -44,7 +34,7 @@ export default function ClientesPage() {
   return (
     <div>
       <h2 className="pagetitle">Clientes</h2>
-      <div className="pagesub">Registro maestro de clientes — se llenó solo a partir de tus cotizaciones. Aquí puedes corregir datos o unificar duplicados.</div>
+      <div className="pagesub">Registro maestro de clientes — se llenó solo a partir de tus cotizaciones. Para consultar el detalle o editar los datos de un cliente usa &quot;Ver cliente&quot;.</div>
 
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="field" style={{ marginBottom: 0 }}>
@@ -63,14 +53,16 @@ export default function ClientesPage() {
               <tbody>
                 {filtered.map((c) => (
                   <tr key={c.id}>
-                    <td><input value={c.name || ''} onChange={(e) => updateField(c.id, 'name', e.target.value)} onBlur={() => saveRow(c.id)} /></td>
-                    <td><input value={c.phone || ''} onChange={(e) => updateField(c.id, 'phone', e.target.value)} onBlur={() => saveRow(c.id)} /></td>
-                    <td><input value={c.email || ''} onChange={(e) => updateField(c.id, 'email', e.target.value)} onBlur={() => saveRow(c.id)} /></td>
-                    <td><input value={c.address || ''} onChange={(e) => updateField(c.id, 'address', e.target.value)} onBlur={() => saveRow(c.id)} /></td>
-                    <td style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-                      <button className="btn ghost small" onClick={() => router.push(`/clientes/${c.id}`)}>Ver cliente</button>
-                      <button className="btn teal small" onClick={() => router.push(`/cotizar?client=${c.id}`)}>Nueva cotización</button>
-                      <button className="iconbtn" title="Eliminar cliente" onClick={() => deleteClient(c)}>✕</button>
+                    <td className="cell-ell" title={c.name || ''}>{c.name || '—'}</td>
+                    <td className="cell-ell" title={c.phone || ''}>{c.phone || '—'}</td>
+                    <td className="cell-ell" title={c.email || ''}>{c.email || '—'}</td>
+                    <td className="cell-ell" title={c.address || ''}>{c.address || '—'}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+                        <button className="btn ghost small" onClick={() => router.push(`/clientes/${c.id}`)}>Ver cliente</button>
+                        <button className="btn teal small" onClick={() => router.push(`/cotizar?client=${c.id}`)}>Nueva cotización</button>
+                        <button className="iconbtn" title="Eliminar cliente" onClick={() => deleteClient(c)}>✕</button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -80,8 +72,8 @@ export default function ClientesPage() {
         )}
       </div>
       <div className="helptext" style={{ marginTop: 10 }}>
-        Editar aquí no cambia las cotizaciones ya generadas (esas conservan una copia propia de los datos del cliente tal como
-        estaban en ese momento) — sí se usa para prellenar cotizaciones y servicios nuevos.
+        Editar los datos de un cliente (desde &quot;Ver cliente&quot;) no cambia las cotizaciones ya generadas — esas conservan una copia propia de los datos
+        tal como estaban en ese momento; sí se usa para prellenar cotizaciones y servicios nuevos.
       </div>
     </div>
   )

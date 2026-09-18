@@ -123,8 +123,33 @@ table.datatable td{ padding:8px; border-bottom:1px solid #EEF0F1; }
    en escritorio: en móvil sigue apilándose a una columna (ver media query
    más abajo). */
 @media (min-width: 769px){
-  .hist-row.hist-row-fixed{ grid-template-columns: 110px minmax(120px,1.3fr) 90px 170px 230px; }
+  /* Escritorio angosto/mediano: los datos en una línea y los botones en una
+     segunda línea, siempre con la misma estructura en todas las filas. */
+  .hist-row.hist-row-fixed{ grid-template-columns: 150px minmax(0,1fr) 100px 170px; row-gap:8px; }
+  .hist-row.hist-row-fixed .hist-actions{ grid-column: 1 / -1; justify-content:flex-end; }
+  .hist-row.hist-row-svc{ grid-template-columns: minmax(0,1fr) minmax(0,1fr) 150px 170px; row-gap:8px; }
+  .hist-row.hist-row-svc .hist-actions{ grid-column: 1 / -1; justify-content:flex-end; }
 }
+@media (min-width: 1400px){
+  .hist-row.hist-row-fixed{ grid-template-columns: 150px minmax(0,1fr) 100px 170px 400px; }
+  .hist-row.hist-row-fixed .hist-actions{ grid-column:auto; }
+  .hist-row.hist-row-svc{ grid-template-columns: minmax(0,1fr) minmax(0,1.2fr) 150px 170px 200px; }
+  .hist-row.hist-row-svc .hist-actions{ grid-column:auto; }
+}
+/* Textos largos: una sola línea con "…" (el texto completo va en el title)
+   para que todas las filas conserven la misma altura y alineación. */
+.hist-row-fixed > *, .hist-row-svc > *{ min-width:0; }
+.ell{ overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; }
+.ell-wrap{ min-width:0; flex:1; }
+.hist-actions{ display:flex; gap:6px; justify-content:flex-end; flex-wrap:wrap; align-items:center; }
+.hist-folio{ display:flex; align-items:center; gap:6px; }
+.hist-toggle, .hist-toggle-spacer, .hist-branch{ flex:0 0 22px; width:22px; height:22px; }
+.hist-toggle{ border:1px solid var(--line); background:#fff; border-radius:6px; cursor:pointer; font-size:9px; line-height:1; color:var(--steel); padding:0; transition:background .15s ease, border-color .15s ease; }
+.hist-toggle:hover{ border-color:var(--teal); color:var(--teal-dark); background:rgba(31,175,168,.06); }
+.hist-branch{ display:inline-flex; align-items:center; justify-content:center; color:var(--teal-dark); font-size:14px; }
+/* Recibo como registro hijo: sangría, borde lateral y fondo diferenciado. */
+.hist-row.hist-child{ margin-left:30px; border-left:3px solid var(--teal); border-radius:0 var(--radius-sm) var(--radius-sm) 0; background:rgba(31,175,168,.06); padding-top:10px; padding-bottom:10px; animation:hist-child-in .18s ease; }
+@keyframes hist-child-in{ from{ opacity:0; transform:translateY(-4px); } to{ opacity:1; transform:none; } }
 .hist-row:hover{ background:rgba(21,27,35,.02); }
 .hist-search-grid{ display:grid; grid-template-columns: 2fr 1fr 1fr; gap:12px; }
 
@@ -205,3 +230,7 @@ table.datatable td{ padding:8px; border-bottom:1px solid #EEF0F1; }
   .actionsbar .btn{ text-align:center; }
   table.datatable{ font-size:12px; }
 }
+
+/* Tabla de Clientes: datos de solo lectura, una línea con "…" para textos largos. */
+table.datatable td.cell-ell{ max-width:220px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.hist-actions .btn{ display:inline-flex; align-items:center; line-height:1.2; }

@@ -20,6 +20,7 @@ export default function HistorialPage() {
   const [searchDate, setSearchDate] = useState('')
   const [typeFilter, setTypeFilter] = useState('all') // all | cotizacion | recibo
   const [page, setPage] = useState(1)
+  const [expanded, setExpanded] = useState({}) // id de cotización -> true si su recibo está desplegado
   const router = useRouter()
 
   async function load() {
@@ -41,10 +42,24 @@ export default function HistorialPage() {
     return map
   }, [services])
 
+  // Un recibo se relaciona con su cotización por `related_folio` (relación que
+  // ya existía). Se muestra como hijo de su cotización; si por datos antiguos
+  // no tiene cotización padre, se conserva como registro independiente para
+  // no perderlo.
+  const receiptsByFolio = useMemo(() => {
+    const cotFolios = new Set(quotes.filter((q) => q.status !== 'recibo').map((q) => q.folio))
+    const map = {}
+    quotes.forEach((q) => {
+      if (q.status === 'recibo' && q.related_folio && cotFolios.has(q.related_folio)) {
+        ;(map[q.related_folio] ||= []).push(q)
+      }
+    })
+    return map
+  }, [quotes])
+
   const filtered = useMemo(() => {
     const text = searchText.trim().toLowerCase()
-    return quotes.filter((q) => {
-      if (typeFilter !== 'all' && q.status !== typeFilter) return false
+    const matches = (q) => {
       if (text) {
         const haystack = `${q.client_name || ''} ${q.folio || ''}`.toLowerCase()
         if (!haystack.includes(text)) return false
@@ -54,8 +69,17 @@ export default function HistorialPage() {
         if (qDate !== searchDate) return false
       }
       return true
+    }
+    // Lista principal: cotizaciones (con su recibo dentro) + recibos sin padre.
+    return quotes.filter((q) => {
+      const isReceipt = q.status === 'recibo'
+      if (isReceipt && q.related_folio && receiptsByFolio[q.related_folio]) return false // va dentro de su cotización
+      const children = isReceipt ? [] : (receiptsByFolio[q.folio] || [])
+      if (typeFilter === 'cotizacion' && isReceipt) return false
+      if (typeFilter === 'recibo' && !isReceipt && !children.length) return false
+      return matches(q) || children.some(matches)
     })
-  }, [quotes, searchText, searchDate, typeFilter])
+  }, [quotes, receiptsByFolio, searchText, searchDate, typeFilter])
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
@@ -101,6 +125,13 @@ export default function HistorialPage() {
   }
 
   async function convertToReceipt(src) {
+    // Relación 1 cotización → 0 o 1 recibo: si ya existe uno, no se crea otro.
+    const { data: existing } = await supabase.from('quotes').select('id').eq('status', 'recibo').eq('related_folio', src.folio).limit(1)
+    if (existing && existing.length) {
+      await supabase.from('quotes').update({ contracted: true }).eq('id', src.id)
+      await load()
+      return
+    }
     const folio = await nextFolio('recibo')
     const payload = {
       folio,
@@ -122,14 +153,88 @@ export default function HistorialPage() {
   }
 
   async function deleteRecord(rec) {
-    const tipo = rec.status === 'recibo' ? 'el recibo' : 'la cotización'
+    const isReceipt = rec.status === 'recibo'
+    const tipo = isReceipt ? 'el recibo' : 'la cotización'
+    const linked = isReceipt ? [] : (receiptsByFolio[rec.folio] || [])
+    const extra = linked.length ? `\n\nTambién se eliminará su recibo asociado (${linked.map((r) => r.folio).join(', ')}).` : ''
     const ok = window.confirm(
-      `¿Seguro que deseas eliminar ${tipo} ${rec.folio}?\n\nEsta acción no se puede deshacer: una vez borrado no podrás recuperarlo.`
+      `¿Seguro que deseas eliminar ${tipo} ${rec.folio}?${extra}\n\nEsta acción no se puede deshacer: una vez borrado no podrás recuperarlo.`
     )
     if (!ok) return
     const { error } = await supabase.from('quotes').delete().eq('id', rec.id)
     if (error) { alert('No se pudo eliminar: ' + error.message); return }
+    // Eliminación en cascada: primero la cotización (si falla, el recibo no
+    // queda huérfano) y después su recibo asociado.
+    if (!isReceipt) {
+      const { error: recError } = await supabase.from('quotes').delete().eq('status', 'recibo').eq('related_folio', rec.folio)
+      if (recError) alert('La cotización se eliminó, pero no se pudo eliminar su recibo: ' + recError.message)
+    }
     load()
+  }
+
+  // Una fila del historial. Las cotizaciones son el registro principal; su
+  // recibo (si existe) se dibuja como fila hija con solo PDF y Enviar.
+  function renderRow(q, { children = [], isOpen = false, isChild = false } = {}) {
+    const isReceipt = q.status === 'recibo'
+    const service = serviceByQuoteId.get(q.id)
+    const cellStatus = service?.status || 'pendiente_agendar'
+    return (
+      <div className={`hist-row hist-row-fixed${isChild ? ' hist-child' : ''}`} key={q.id}>
+        <div className="hist-folio">
+          {isChild ? (
+            <span className="hist-branch" aria-hidden="true">└</span>
+          ) : children.length ? (
+            <button
+              className="hist-toggle"
+              aria-expanded={isOpen}
+              title={isOpen ? 'Ocultar recibo' : 'Ver recibo'}
+              onClick={() => setExpanded((e) => ({ ...e, [q.id]: !e[q.id] }))}
+            >{isOpen ? '▲' : '▼'}</button>
+          ) : (
+            <span className="hist-toggle-spacer" />
+          )}
+          <div className="ell-wrap">
+            <div className="ell" title={q.folio} style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{q.folio}</div>
+            <div className="muted ell">{new Date(q.created_at).toLocaleDateString('es-MX')}</div>
+          </div>
+        </div>
+        <div>
+          <div className="ell" title={q.client_name}>{q.client_name}</div>
+          <div className="muted ell" title={q.client_phone}>{q.client_phone}</div>
+        </div>
+        <div className="ell" style={{ fontFamily: 'var(--mono)' }}>{fmt(q.total)}</div>
+        <div>
+          {isReceipt ? (
+            <span className="badge rec">RECIBO</span>
+          ) : q.contracted ? (
+            <span className={`badge ${SERVICE_STATUS_BADGE[cellStatus]}`}>{SERVICE_STATUS_LABEL[cellStatus]}</span>
+          ) : (
+            <span className="badge cot">COTIZACIÓN</span>
+          )}
+        </div>
+        <div className="hist-actions">
+          <button className="btn ghost small" onClick={() => downloadPdf(q)}>PDF</button>
+
+          <SendMenu onEmail={() => sendByEmail(q)} onWhatsapp={() => sendByWhatsapp(q)} />
+
+          {!isReceipt && (
+            <button className="btn ghost small" onClick={() => router.push(`/cotizar?edit=${q.id}`)}>Editar</button>
+          )}
+          {!isReceipt && !q.contracted && (
+            <button className="btn teal small" onClick={() => convertToReceipt(q)}>Marcar contratado</button>
+          )}
+          {!isReceipt && q.contracted && !service && (
+            <button className="btn teal small" onClick={() => router.push(`/servicios/nuevo?quoteId=${q.id}`)}>Agendar servicio</button>
+          )}
+          {!isReceipt && q.contracted && service && (
+            <button className="btn ghost small" onClick={() => router.push(`/servicios/${service.id}`)}>Ver servicio</button>
+          )}
+          {!isChild && (
+            <button className="iconbtn" title="Eliminar" onClick={() => deleteRecord(q)}>✕</button>
+          )}
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -165,49 +270,16 @@ export default function HistorialPage() {
       ) : (
         <>
           <div className="panel" style={{ padding: '6px 12px' }}>
-            {pageItems.map((q) => (
-              <div className="hist-row hist-row-fixed" key={q.id}>
-                <div>
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{q.folio}</div>
-                  <div className="muted">{new Date(q.created_at).toLocaleDateString('es-MX')}</div>
+            {pageItems.map((q) => {
+              const children = q.status === 'recibo' ? [] : (receiptsByFolio[q.folio] || [])
+              const isOpen = !!expanded[q.id] || typeFilter === 'recibo'
+              return (
+                <div key={q.id}>
+                  {renderRow(q, { children, isOpen })}
+                  {children.length > 0 && isOpen && children.map((r) => renderRow(r, { isChild: true }))}
                 </div>
-                <div>
-                  <div>{q.client_name}</div>
-                  <div className="muted">{q.client_phone}</div>
-                </div>
-                <div style={{ fontFamily: 'var(--mono)' }}>{fmt(q.total)}</div>
-                <div>
-                  {q.status === 'recibo' ? (
-                    <span className="badge rec">RECIBO</span>
-                  ) : q.contracted ? (
-                    <span className={`badge ${SERVICE_STATUS_BADGE[serviceByQuoteId.get(q.id)?.status || 'pendiente_agendar']}`}>
-                      {SERVICE_STATUS_LABEL[serviceByQuoteId.get(q.id)?.status || 'pendiente_agendar']}
-                    </span>
-                  ) : (
-                    <span className="badge cot">COTIZACIÓN</span>
-                  )}
-                </div>
-                <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                  <button className="btn ghost small" onClick={() => downloadPdf(q)}>PDF</button>
-
-                  <SendMenu onEmail={() => sendByEmail(q)} onWhatsapp={() => sendByWhatsapp(q)} />
-
-                  {q.status === 'cotizacion' && !q.contracted && (
-                    <button className="btn ghost small" onClick={() => router.push(`/cotizar?edit=${q.id}`)}>Editar</button>
-                  )}
-                  {q.status === 'cotizacion' && !q.contracted && (
-                    <button className="btn teal small" onClick={() => convertToReceipt(q)}>Marcar contratado</button>
-                  )}
-                  {q.status === 'cotizacion' && q.contracted && !serviceByQuoteId.get(q.id) && (
-                    <button className="btn teal small" onClick={() => router.push(`/servicios/nuevo?quoteId=${q.id}`)}>Agendar servicio</button>
-                  )}
-                  {q.status === 'cotizacion' && q.contracted && serviceByQuoteId.get(q.id) && (
-                    <button className="btn ghost small" onClick={() => router.push(`/servicios/${serviceByQuoteId.get(q.id).id}`)}>Ver servicio</button>
-                  )}
-                  <button className="iconbtn" title="Eliminar" onClick={() => deleteRecord(q)}>✕</button>
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
 
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>

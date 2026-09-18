@@ -65,23 +65,23 @@ export default function ServiciosPage() {
       ) : (
         <div className="panel" style={{ padding: '6px 12px' }}>
           {filtered.map((s) => (
-            <div className="hist-row" key={s.id}>
+            <div className="hist-row hist-row-svc" key={s.id}>
               <div>
-                <div>{s.quotes?.client_name || 'Cliente'}</div>
-                <div className="muted">{s.quotes?.client_phone}</div>
+                <div className="ell" title={s.quotes?.client_name}>{s.quotes?.client_name || 'Cliente'}</div>
+                <div className="muted ell">{s.quotes?.client_phone}</div>
               </div>
               <div>
-                <div>{s.service_type || 'Servicio'}</div>
-                <div className="muted">Cotización {s.quotes?.folio}</div>
+                <div className="ell" title={s.service_type}>{s.service_type || 'Servicio'}</div>
+                <div className="muted ell">Cotización {s.quotes?.folio}</div>
               </div>
-              <div style={{ fontFamily: 'var(--mono)', fontSize: 12.5 }}>
+              <div className="ell" style={{ fontFamily: 'var(--mono)', fontSize: 12.5 }}>
                 {s.start_at ? new Date(s.start_at).toLocaleString('es-MX', { dateStyle: 'short', timeStyle: 'short' }) : 'Sin fecha'}
               </div>
               <div>
                 <span className={`badge ${STATUS_BADGE[s.status]}`}>{STATUS_LABEL[s.status]}</span>
                 {s.sync_status === 'error' && <span className="badge cot" style={{ marginLeft: 4, background: '#FBEAE6', color: 'var(--red)' }}>SIN SINCRONIZAR</span>}
               </div>
-              <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+              <div className="hist-actions">
                 {s.google_event_link && <a className="btn ghost small" href={s.google_event_link} target="_blank" rel="noopener">Ver calendario</a>}
                 <button className="btn ghost small" onClick={() => router.push(`/servicios/${s.id}`)}>Editar</button>
               </div>

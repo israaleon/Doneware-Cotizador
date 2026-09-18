@@ -200,6 +200,15 @@ function CotizarInner() {
       const { data, error } = await supabase.from('quotes').update(payload).eq('id', editingRec.id).select().single()
       if (error) { alert('No se pudo guardar: ' + error.message); setSaving(false); return }
       rec = data
+      // Cotización contratada: su recibo existente se actualiza con los mismos
+      // datos (mismo folio, sin crear otro). El tiempo de instalación no va en recibos.
+      if (editingRec.status === 'cotizacion' && editingRec.contracted) {
+        const receiptPayload = { ...payload }
+        delete receiptPayload.install_time_value
+        delete receiptPayload.install_time_unit
+        const { error: recError } = await supabase.from('quotes').update(receiptPayload).eq('status', 'recibo').eq('related_folio', editingRec.folio)
+        if (recError) alert('La cotización se guardó, pero no se pudo actualizar su recibo: ' + recError.message)
+      }
     } else {
       const folio = await nextFolio('cotizacion')
       const { data, error } = await supabase.from('quotes').insert({ ...payload, folio, status: 'cotizacion' }).select().single()
