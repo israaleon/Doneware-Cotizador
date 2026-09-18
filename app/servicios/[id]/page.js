@@ -61,6 +61,25 @@ export default function EditarServicioPage() {
       return
     }
 
+    // "Pendiente de agendar" indica que el cliente todavía no define fecha —
+    // no debe quedar ni fecha ni evento en Google Calendar hasta que se
+    // vuelva a editar el servicio agregando una nueva fecha y hora. Solo
+    // dispara si es un cambio de estatus explícito (venía de otro estatus):
+    // si ya estaba pendiente y solo se le agrega fecha, eso sigue el flujo
+    // normal de abajo, que lo promueve a "Agendado".
+    if (form.status === 'pendiente_agendar' && service.status !== 'pendiente_agendar') {
+      const { data: { session } } = await supabase.auth.getSession()
+      const res = await fetch('/api/services/clear-schedule', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ serviceId: service.id }),
+      })
+      setSaving(false)
+      if (!res.ok) { const j = await res.json().catch(() => ({})); setError(j.error || 'No se pudo limpiar la fecha y el evento de calendario.'); return }
+      load()
+      return
+    }
+
     const startAtIso = form.startAt ? new Date(form.startAt).toISOString() : null
     const { error: updateError } = await supabase.from('services').update({
       service_type: form.serviceType,
