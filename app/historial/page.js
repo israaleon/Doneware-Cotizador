@@ -4,9 +4,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { fmt, isValidEmail, isValidPhone10 } from '@/lib/calc'
-import { nextFolio } from '@/lib/folio'
 import { fillTemplate } from '@/lib/templates'
-import { buildPdfDoc } from '@/lib/pdf'
+import { triggerPdfDownload, resolveQuoteDownload } from '@/lib/pdf'
+import { contractQuoteFlow } from '@/lib/quoteContracting'
+import { getHistoricalLogoPath, removePaths } from '@/lib/quoteLogo'
+import { getQuotePdfPath, removeQuoteRevisionFiles } from '@/lib/quotePdfStorage'
+import { isContracted, isCancelled, canDeleteQuote, canContractQuote, canCancelContract } from '@/lib/quoteLifecycle'
 import SendMenu from '@/components/SendMenu'
 import { SERVICE_STATUS_LABEL, SERVICE_STATUS_BADGE } from '@/lib/serviceStatus'
 
@@ -21,6 +24,8 @@ export default function HistorialPage() {
   const [typeFilter, setTypeFilter] = useState('all') // all | cotizacion | recibo
   const [page, setPage] = useState(1)
   const [expanded, setExpanded] = useState({}) // id de cotización -> true si su recibo está desplegado
+  const [contractingId, setContractingId] = useState(null) // id de la quote que se está contratando (evita doble clic)
+  const [cancellingId, setCancellingId] = useState(null) // id de la quote que se está cancelando
   const router = useRouter()
 
   async function load() {
@@ -87,8 +92,9 @@ export default function HistorialPage() {
   if (!config) return <div>Cargando…</div>
 
   async function downloadPdf(rec) {
-    const doc = await buildPdfDoc(rec, config)
-    doc.save(rec.folio + '.pdf')
+    const result = await resolveQuoteDownload(rec, config)
+    if (!result.ok) { alert(result.message); return }
+    triggerPdfDownload(result.blob, result.filename)
   }
 
   // ---------- Correo: manual (adjuntar tú mismo). Ya NO descarga el PDF de
@@ -124,35 +130,98 @@ export default function HistorialPage() {
     window.open(`https://wa.me/52${digits}?text=${encodeURIComponent(text)}`, '_blank')
   }
 
-  async function convertToReceipt(src) {
-    // Relación 1 cotización → 0 o 1 recibo: si ya existe uno, no se crea otro.
-    const { data: existing } = await supabase.from('quotes').select('id').eq('status', 'recibo').eq('related_folio', src.folio).limit(1)
-    if (existing && existing.length) {
-      await supabase.from('quotes').update({ contracted: true }).eq('id', src.id)
-      await load()
+  // Fase 6.6B — contratar es ahora una única operación atómica en DB
+  // (contract_quote, Fase 6.6A). El único trabajo que sigue haciendo el
+  // cliente es lo que la RPC no puede hacer por sí misma: asegurar el PDF en
+  // Storage ANTES de llamarla (Postgres no puede verificar bytes en
+  // Storage). Nunca se reconstruye la transición escribiendo varias tablas
+  // desde JS — eso quedaría fuera de la transacción y podría dejar estados
+  // parciales, que es exactamente lo que la RPC existe para impedir.
+  async function contractQuote(src) {
+    // Fase 6.7C-1.1 — el camino (revisión 6.7 / legacy 6.6) se decide dentro de
+    // contractQuoteFlow con la fila FRESCA de la DB, no con `src` (el listado
+    // puede estar viejo): solo se le pasa el id. Ver lib/quoteContracting.js.
+    setContractingId(src.id)
+    const result = await contractQuoteFlow(src.id)
+    setContractingId(null)
+    if (!result.ok) {
+      // Fallo/aborto: la contratación NO se confirmó — el estado anterior
+      // permanece intacto en DB, nada que revertir. Si el estado real ya es
+      // otro (contratada/cancelada/inexistente) se refresca el listado.
+      alert(result.message)
+      if (result.reload) await load()
       return
     }
-    const folio = await nextFolio('recibo')
-    const payload = {
-      folio,
-      status: 'recibo',
-      related_folio: src.folio,
-      client_name: src.client_name, client_phone: src.client_phone, client_email: src.client_email, client_address: src.client_address,
-      client_id: src.client_id,
-      items: src.items, discount_type: src.discount_type, discount_value: src.discount_value,
-      notes: src.notes, valid_days: src.valid_days,
-      subtotal: src.subtotal, discount: src.discount, iva: src.iva, iva_rate: src.iva_rate, apply_iva: src.apply_iva, total: src.total,
-    }
-    const { data: rec, error } = await supabase.from('quotes').insert(payload).select().single()
-    if (error) { alert('No se pudo generar el recibo: ' + error.message); return }
-    // La cotización original pasa a "Contratado" — ya no se borra ese estado
-    // aunque pasen los días, y desde aquí ya se puede agendar el servicio.
-    await supabase.from('quotes').update({ contracted: true }).eq('id', src.id)
+    const data = result.data
     await load()
-    await downloadPdf(rec) // aquí sí se descarga: es la primera vez que existe este recibo
+    // already_contracted=true (reintento/doble clic detectado por la propia
+    // RPC) no trae receipt_folio — no es un error, es el resultado idempotente
+    // esperado; no hay nada nuevo que descargar.
+    if (!data.already_contracted && data.receipt_folio) {
+      const { data: recRow } = await supabase.from('quotes').select('*').eq('folio', data.receipt_folio).single()
+      if (recRow) await downloadPdf(recRow) // primera vez que existe este recibo
+    }
+  }
+
+  // Fase 6.6B — cancelar una contratación. DB (cancel_quote_contract) es la
+  // única autoridad transaccional: primero su commit, después — solo si tuvo
+  // éxito — se intenta limpiar Calendar, de forma best-effort e
+  // individual por servicio (nunca Promise.all: un evento que falle no debe
+  // impedir intentar los demás).
+  async function cancelContract(src) {
+    const ok = window.confirm(
+      `¿Cancelar la contratación de ${src.folio}?\n\n` +
+      `Se cancelará su recibo asociado y los servicios pendientes, agendados o confirmados vinculados a esta cotización ` +
+      `(los ya realizados no se modifican). El historial (cotización, recibo y servicios) se conserva — solo cambia su estado.\n\n` +
+      `Esta acción no se puede deshacer.`
+    )
+    if (!ok) return
+    const reasonInput = window.prompt('Motivo de la cancelación (opcional):', '')
+    const reason = reasonInput && reasonInput.trim() ? reasonInput.trim() : null
+
+    setCancellingId(src.id)
+    const { data, error } = await supabase.rpc('cancel_quote_contract', { p_quote_id: src.id, p_reason: reason })
+    setCancellingId(null)
+    if (error) {
+      // Fallo de RPC: cancelación NO confirmada — no se toca Calendar, el
+      // estado contratado anterior permanece intacto.
+      alert('No se pudo cancelar la contratación: ' + error.message)
+      return
+    }
+    await load()
+    if (data.already_cancelled) return
+
+    const affected = (data.affected_services || []).filter((s) => s.google_event_id)
+    if (affected.length) {
+      const { data: { session } } = await supabase.auth.getSession()
+      const failures = []
+      for (const s of affected) {
+        try {
+          const res = await fetch('/api/services/cancel-calendar-event', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+            body: JSON.stringify({ serviceId: s.id }),
+          })
+          if (!res.ok) failures.push(s.id)
+        } catch (e) {
+          failures.push(s.id)
+        }
+      }
+      if (failures.length) {
+        alert('Contratación cancelada correctamente, pero uno o más eventos de Google Calendar no pudieron eliminarse.')
+      }
+    }
   }
 
   async function deleteRecord(rec) {
+    // Fase 6.5.1 — defensa en profundidad: no basta con ocultar el botón en
+    // la UI. Cualquier llamada a esta función (accidental, futura, o desde
+    // una fila que el render todavía no contemplara) se aborta aquí mismo,
+    // antes de tocar DB o Storage, si el registro es historial contractual.
+    if (!canDeleteQuote(rec)) {
+      alert('Esta cotización no puede eliminarse: forma parte del historial contractual (contratada, cancelada, o es un recibo). Para revertir una contratación, usa "Cancelar Contratación" cuando esté disponible.')
+      return
+    }
     const isReceipt = rec.status === 'recibo'
     const tipo = isReceipt ? 'el recibo' : 'la cotización'
     const linked = isReceipt ? [] : (receiptsByFolio[rec.folio] || [])
@@ -169,6 +238,17 @@ export default function HistorialPage() {
       const { error: recError } = await supabase.from('quotes').delete().eq('status', 'recibo').eq('related_folio', rec.folio)
       if (recError) alert('La cotización se eliminó, pero no se pudo eliminar su recibo: ' + recError.message)
     }
+    // Fase 6.5 / 6.5.1 — limpia los objetos privados conocidos de ESTA
+    // cotización (logo histórico y PDF persistido) para no dejarlos huérfanos
+    // en Storage para siempre. El guard de arriba ya garantiza que nunca se
+    // llega aquí con una contratada/cancelada/recibo — esta limpieza es,
+    // por diseño, exclusiva de la eliminación física precontrato. Un fallo
+    // aquí no revierte ni bloquea el borrado, que ya se completó.
+    const removed = await removePaths([getHistoricalLogoPath(rec.id), getQuotePdfPath(rec.id)])
+    // Fase 6.7C-1 — además, los PDFs/logos de revisión de ESTA cotización
+    // (quotes/{id}/revisions/*), que ya no se pueden nombrar de antemano.
+    const removedRevisions = await removeQuoteRevisionFiles(rec.id)
+    if (!removed.ok || !removedRevisions.ok) alert('Se eliminó correctamente, pero no fue posible limpiar sus archivos asociados en Storage (quedaron huérfanos, sin afectar el resto del sistema).')
     load()
   }
 
@@ -205,8 +285,10 @@ export default function HistorialPage() {
         <div className="ell" style={{ fontFamily: 'var(--mono)' }}>{fmt(q.total)}</div>
         <div>
           {isReceipt ? (
-            <span className="badge rec">RECIBO</span>
-          ) : q.contracted ? (
+            <span className="badge rec">{q.receipt_status === 'cancelado' ? 'RECIBO · CANCELADO' : 'RECIBO'}</span>
+          ) : isCancelled(q) ? (
+            <span className="badge can">CANCELADO</span>
+          ) : isContracted(q) ? (
             <span className={`badge ${SERVICE_STATUS_BADGE[cellStatus]}`}>{SERVICE_STATUS_LABEL[cellStatus]}</span>
           ) : (
             <span className="badge cot">COTIZACIÓN</span>
@@ -217,19 +299,26 @@ export default function HistorialPage() {
 
           <SendMenu onEmail={() => sendByEmail(q)} onWhatsapp={() => sendByWhatsapp(q)} />
 
-          {!isReceipt && (
+          {!isReceipt && canContractQuote(q) && (
             <button className="btn ghost small" onClick={() => router.push(`/cotizar?edit=${q.id}`)}>Editar</button>
           )}
-          {!isReceipt && !q.contracted && (
-            <button className="btn teal small" onClick={() => convertToReceipt(q)}>Marcar contratado</button>
+          {!isReceipt && canContractQuote(q) && (
+            <button className="btn teal small" disabled={contractingId === q.id} onClick={() => contractQuote(q)}>
+              {contractingId === q.id ? 'Contratando…' : 'Marcar contratado'}
+            </button>
           )}
-          {!isReceipt && q.contracted && !service && (
+          {!isReceipt && canCancelContract(q) && (
+            <button className="btn ghost small" disabled={cancellingId === q.id} onClick={() => cancelContract(q)}>
+              {cancellingId === q.id ? 'Cancelando…' : 'Cancelar contratación'}
+            </button>
+          )}
+          {!isReceipt && isContracted(q) && !service && (
             <button className="btn teal small" onClick={() => router.push(`/servicios/nuevo?quoteId=${q.id}`)}>Agendar servicio</button>
           )}
-          {!isReceipt && q.contracted && service && (
+          {!isReceipt && (isContracted(q) || isCancelled(q)) && service && (
             <button className="btn ghost small" onClick={() => router.push(`/servicios/${service.id}`)}>Ver servicio</button>
           )}
-          {!isChild && (
+          {!isChild && canDeleteQuote(q) && (
             <button className="iconbtn" title="Eliminar" onClick={() => deleteRecord(q)}>✕</button>
           )}
         </div>

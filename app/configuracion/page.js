@@ -71,9 +71,30 @@ function GoogleConnectPanel() {
   )
 }
 
+// Fase 6.3B — términos/pago específicos por tipo. Al guardar, un override
+// vacío (o solo espacios) se ELIMINA de la clave en vez de guardarse como ''
+// — así {} sigue significando limpiamente "sin overrides". Nunca toca
+// ninguna clave que no sea una de estas tres (una clave futura desconocida
+// sobrevive intacta).
+const QUOTE_TYPES = [
+  { key: 'instalacion', label: '🔧 Instalación' },
+  { key: 'servicio', label: '🛠️ Servicio' },
+  { key: 'venta', label: '📦 Venta de productos' },
+]
+function cleanByType(obj) {
+  const next = { ...(obj || {}) }
+  QUOTE_TYPES.forEach(({ key }) => {
+    const v = (next[key] ?? '').toString().trim()
+    if (v) next[key] = v
+    else delete next[key]
+  })
+  return next
+}
+
 export default function ConfiguracionPage() {
   const [config, setConfig] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [expandedTypes, setExpandedTypes] = useState({})
 
   useEffect(() => {
     supabase.from('app_config').select('*').eq('id', 1).single().then(({ data }) => setConfig(data))
@@ -82,6 +103,10 @@ export default function ConfiguracionPage() {
   if (!config) return <div>Cargando…</div>
 
   function set(field, value) { setConfig((c) => ({ ...c, [field]: value })) }
+  function setTypeField(kind, quoteType, value) {
+    setConfig((c) => ({ ...c, [kind]: { ...(c[kind] || {}), [quoteType]: value } }))
+  }
+  function toggleType(key) { setExpandedTypes((e) => ({ ...e, [key]: !e[key] })) }
 
   async function handleLogoUpload(e) {
     const file = e.target.files[0]
@@ -98,10 +123,14 @@ export default function ConfiguracionPage() {
   async function save() {
     setSaving(true)
     const { id, next_quote_number, next_receipt_number, ...rest } = config
-    const { error } = await supabase.from('app_config').update(rest).eq('id', 1)
+    const terms_by_type = cleanByType(rest.terms_by_type)
+    const bank_info_by_type = cleanByType(rest.bank_info_by_type)
+    const payload = { ...rest, terms_by_type, bank_info_by_type }
+    const { error } = await supabase.from('app_config').update(payload).eq('id', 1)
     setSaving(false)
-    if (error) alert('No se pudo guardar: ' + error.message)
-    else alert('Configuración guardada.')
+    if (error) { alert('No se pudo guardar: ' + error.message); return }
+    setConfig((c) => ({ ...c, terms_by_type, bank_info_by_type }))
+    alert('Configuración guardada.')
   }
 
   return (
@@ -158,6 +187,43 @@ export default function ConfiguracionPage() {
           Los datos de pago ahora se muestran en el PDF de la <strong>cotización</strong> (para que el cliente sepa cómo pagar si decide contratar)
           y ya no aparecen en el PDF del <strong>recibo</strong>, que solo confirma que el servicio quedó pagado.
         </div>
+      </div>
+
+      <div className="panel">
+        <h3>Términos y pago específicos por tipo</h3>
+        <div className="helptext" style={{ marginTop: 0 }}>
+          Opcionales, por tipo de cotización. Los <strong>términos específicos</strong> se agregan después de los generales de arriba (nunca los sustituyen). Los <strong>datos de pago específicos</strong>, cuando existen, reemplazan a los generales solo para ese tipo.
+        </div>
+        {QUOTE_TYPES.map((t) => (
+          <div key={t.key} style={{ borderBottom: '1px solid #EEF0F1', paddingBottom: 10, marginBottom: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <strong style={{ fontSize: 13 }}>{t.label}</strong>
+              <button type="button" className="hist-toggle" aria-expanded={!!expandedTypes[t.key]} title="Ver términos y pago específicos" onClick={() => toggleType(t.key)}>
+                {expandedTypes[t.key] ? '▲' : '▼'}
+              </button>
+            </div>
+            {expandedTypes[t.key] && (
+              <div style={{ marginTop: 10 }}>
+                <div className="field">
+                  <label>Términos específicos</label>
+                  <textarea
+                    value={(config.terms_by_type || {})[t.key] || ''}
+                    onChange={(e) => setTypeField('terms_by_type', t.key, e.target.value)}
+                    placeholder="Opcional — se agrega después de los términos generales"
+                  />
+                </div>
+                <div className="field" style={{ marginBottom: 0 }}>
+                  <label>Datos de pago específicos</label>
+                  <textarea
+                    value={(config.bank_info_by_type || {})[t.key] || ''}
+                    onChange={(e) => setTypeField('bank_info_by_type', t.key, e.target.value)}
+                    placeholder="Opcional — reemplaza los datos de pago generales para este tipo"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
       <div className="panel">
