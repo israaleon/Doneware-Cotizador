@@ -9,9 +9,9 @@ import { triggerPdfDownload, resolveQuoteDownload } from '@/lib/pdf'
 import { contractQuoteFlow } from '@/lib/quoteContracting'
 import { getHistoricalLogoPath, removePaths } from '@/lib/quoteLogo'
 import { getQuotePdfPath, removeQuoteRevisionFiles } from '@/lib/quotePdfStorage'
-import { isContracted, isCancelled, canDeleteQuote, canContractQuote, canCancelContract } from '@/lib/quoteLifecycle'
+import { canDeleteQuote, canContractQuote, canCancelContract } from '@/lib/quoteLifecycle'
+import { groupServicesByQuote, resolveQuoteServiceView, serviceActionLabel, serviceActionHref } from '@/lib/quoteServiceView'
 import SendMenu from '@/components/SendMenu'
-import { SERVICE_STATUS_LABEL, SERVICE_STATUS_BADGE } from '@/lib/serviceStatus'
 
 const PAGE_SIZE = 20
 
@@ -41,11 +41,10 @@ export default function HistorialPage() {
   useEffect(() => { load() }, [])
   useEffect(() => { setPage(1) }, [searchText, searchDate, typeFilter])
 
-  const serviceByQuoteId = useMemo(() => {
-    const map = new Map()
-    services.forEach((s) => map.set(s.quote_id, s))
-    return map
-  }, [services])
+  // Fase 6.7C-1.3 — todos los servicios de cada cotización (antes se guardaba
+  // solo el último por quote_id). La decisión de etiquetas y acción vive en
+  // lib/quoteServiceView.js.
+  const servicesByQuoteId = useMemo(() => groupServicesByQuote(services), [services])
 
   // Un recibo se relaciona con su cotización por `related_folio` (relación que
   // ya existía). Se muestra como hijo de su cotización; si por datos antiguos
@@ -256,8 +255,7 @@ export default function HistorialPage() {
   // recibo (si existe) se dibuja como fila hija con solo PDF y Enviar.
   function renderRow(q, { children = [], isOpen = false, isChild = false } = {}) {
     const isReceipt = q.status === 'recibo'
-    const service = serviceByQuoteId.get(q.id)
-    const cellStatus = service?.status || 'pendiente_agendar'
+    const serviceView = isReceipt ? null : resolveQuoteServiceView(q, servicesByQuoteId.get(q.id))
     return (
       <div className={`hist-row hist-row-fixed${isChild ? ' hist-child' : ''}`} key={q.id}>
         <div className="hist-folio">
@@ -286,12 +284,12 @@ export default function HistorialPage() {
         <div>
           {isReceipt ? (
             <span className="badge rec">{q.receipt_status === 'cancelado' ? 'RECIBO · CANCELADO' : 'RECIBO'}</span>
-          ) : isCancelled(q) ? (
-            <span className="badge can">CANCELADO</span>
-          ) : isContracted(q) ? (
-            <span className={`badge ${SERVICE_STATUS_BADGE[cellStatus]}`}>{SERVICE_STATUS_LABEL[cellStatus]}</span>
           ) : (
-            <span className="badge cot">COTIZACIÓN</span>
+            // Estado comercial (Contratada) + estado operativo del servicio, juntos;
+            // en espacios angostos la segunda etiqueta baja a otra línea.
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {serviceView.badges.map((b) => <span key={b.text} className={`badge ${b.tone}`}>{b.text}</span>)}
+            </div>
           )}
         </div>
         <div className="hist-actions">
@@ -312,11 +310,11 @@ export default function HistorialPage() {
               {cancellingId === q.id ? 'Cancelando…' : 'Cancelar contratación'}
             </button>
           )}
-          {!isReceipt && isContracted(q) && !service && (
-            <button className="btn teal small" onClick={() => router.push(`/servicios/nuevo?quoteId=${q.id}`)}>Agendar servicio</button>
-          )}
-          {!isReceipt && (isContracted(q) || isCancelled(q)) && service && (
-            <button className="btn ghost small" onClick={() => router.push(`/servicios/${service.id}`)}>Ver servicio</button>
+          {serviceView && serviceView.action.kind !== 'none' && (
+            <button
+              className={`btn small ${serviceView.action.kind === 'schedule_existing' ? 'teal' : 'ghost'}`}
+              onClick={() => router.push(serviceActionHref(serviceView.action))}
+            >{serviceActionLabel(serviceView.action)}</button>
           )}
           {!isChild && canDeleteQuote(q) && (
             <button className="iconbtn" title="Eliminar" onClick={() => deleteRecord(q)}>✕</button>

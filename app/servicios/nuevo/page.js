@@ -4,6 +4,8 @@ import { useEffect, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { durationToMinutes } from '@/lib/serviceStatus'
+import { loadNewServiceTarget, validateQuoteForNewService, verifyQuoteForNewService } from '@/lib/serviceGuard'
+import { newServiceSyncAlertText } from '@/lib/serviceApiMessages'
 
 function toDatetimeLocal(d) {
   if (!d) return ''
@@ -12,48 +14,56 @@ function toDatetimeLocal(d) {
   return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}`
 }
 
+// Clave de la carga actual: distingue "selector" de cada ?quoteId= para no mostrar nunca un resultado de otra URL.
+const keyOf = (quoteIdParam) => (quoteIdParam === null ? '__pick__' : quoteIdParam)
+
 function NuevoServicioInner() {
   const router = useRouter()
   const params = useSearchParams()
   const quoteIdParam = params.get('quoteId')
 
-  const [quote, setQuote] = useState(null)
-  const [pickList, setPickList] = useState(null) // cotizaciones contratadas sin servicio, si hay que elegir
+  // Fase 6.7C-1.3c / Etapa 1 — la cotización se valida (UUID, existencia, status='cotizacion' y
+  // lifecycle_status='contratado') ANTES de mostrar el formulario; mientras tanto o si falla, no se puede guardar.
+  const [target, setTarget] = useState(null)   // { key, kind: 'picklist'|'form'|'blocked'|'error', ... } de la última respuesta
+  const [picked, setPicked] = useState(null)   // { key, quote } elegida en el selector
   const [form, setForm] = useState({ serviceType: '', startAt: '', durationValue: 1, durationUnit: 'horas', address: '', notes: '' })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
   useEffect(() => {
-    async function load() {
-      if (quoteIdParam) {
-        const { data } = await supabase.from('quotes').select('*').eq('id', quoteIdParam).single()
-        if (data) {
-          setQuote(data)
-          setForm((f) => ({ ...f, address: data.client_address || '' }))
-        }
-        return
-      }
-      // Sin cotización preseleccionada: mostrar las contratadas que aún no tienen servicio.
-      const [{ data: contracted }, { data: existingServices }] = await Promise.all([
-        supabase.from('quotes').select('*').eq('status', 'cotizacion').eq('contracted', true),
-        supabase.from('services').select('quote_id'),
-      ])
-      const withService = new Set((existingServices || []).map((s) => s.quote_id))
-      setPickList((contracted || []).filter((q) => !withService.has(q.id)))
-    }
-    load()
+    let cancelled = false
+    const key = keyOf(quoteIdParam)
+    loadNewServiceTarget(supabase, quoteIdParam).then((r) => {
+      if (cancelled) return                       // respuesta rezagada de otra URL: se descarta
+      setTarget({ key, ...r })
+      if (r.kind === 'form') setForm((f) => ({ ...f, address: r.quote.client_address || '' }))
+    })
+    return () => { cancelled = true }
   }, [quoteIdParam])
 
+  const ready = target && target.key === keyOf(quoteIdParam) ? target : null
+  const pickedHere = picked && picked.key === keyOf(quoteIdParam) ? picked.quote : null
+  const quote = pickedHere || (ready && ready.kind === 'form' ? ready.quote : null)
+
   function pickQuote(q) {
-    setQuote(q)
+    const v = validateQuoteForNewService(q)
+    if (!v.ok) { setError(v.message); return }
+    setError('')
+    setPicked({ key: keyOf(quoteIdParam), quote: q })
     setForm((f) => ({ ...f, address: q.client_address || '' }))
-    setPickList(null)
   }
 
   async function handleSave() {
     if (!quote) return
+    const local = validateQuoteForNewService(quote)
+    if (!local.ok) { setError(local.message); return }
     setError('')
     setSaving(true)
+
+    // Re-valida el estado contractual justo antes de insertar (puede haberse cancelado con la pantalla abierta).
+    // Mejor esfuerzo desde el navegador: no es definitivo ante una cancelación concurrente (Etapas 2 y 3).
+    const check = await verifyQuoteForNewService(supabase, quote.id)
+    if (!check.ok) { setSaving(false); setError(check.message); return }
 
     const startAtIso = form.startAt ? new Date(form.startAt).toISOString() : null
     const payload = {
@@ -94,7 +104,8 @@ function NuevoServicioInner() {
       })
       if (!res.ok) {
         const json = await res.json().catch(() => ({}))
-        alert('El servicio se guardó, pero no se pudo sincronizar con Google Calendar: ' + (json.error || 'error desconocido') + '\n\nPuedes reintentar desde la pantalla del servicio.')
+        // El servicio YA se guardó. alert() es modal: el mensaje (discrepancia, compensación, código) se ve antes de navegar.
+        alert(newServiceSyncAlertText(json))
       }
     }
 
@@ -102,18 +113,36 @@ function NuevoServicioInner() {
     router.push(`/servicios/${created.id}`)
   }
 
-  if (pickList) {
+  if (!ready) return <div>Cargando…</div>
+
+  if (ready.kind === 'blocked' || ready.kind === 'error') {
+    return (
+      <div>
+        <h2 className="pagetitle">Agendar servicio</h2>
+        <div className="pagesub">No se puede agendar un servicio para este registro.</div>
+        <div className="panel">
+          <div className="muted" style={{ padding: 30, textAlign: 'center' }}>
+            <div style={{ marginBottom: 12 }}>{ready.message}</div>
+            <button className="btn ghost small" onClick={() => router.push('/historial')}>Volver a Historial</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (ready.kind === 'picklist' && !quote) {
     return (
       <div>
         <h2 className="pagetitle">Agendar servicio</h2>
         <div className="pagesub">Elige la cotización contratada para la que quieres agendar el servicio.</div>
+        {error && <div className="fielderr" style={{ marginBottom: 10 }}>{error}</div>}
         <div className="panel">
-          {!pickList.length ? (
+          {!ready.quotes.length ? (
             <div className="muted" style={{ padding: 20, textAlign: 'center' }}>
               No hay cotizaciones contratadas pendientes de agendar. Marca una como "Contratado" desde Historial primero.
             </div>
           ) : (
-            pickList.map((q) => (
+            ready.quotes.map((q) => (
               <div key={q.id} className="hist-row" style={{ gridTemplateColumns: '1fr 2fr auto', cursor: 'pointer' }} onClick={() => pickQuote(q)}>
                 <div style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{q.folio}</div>
                 <div>{q.client_name}</div>
