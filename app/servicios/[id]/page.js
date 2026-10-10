@@ -5,7 +5,8 @@ import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { SERVICE_STATUS_OPTIONS as STATUS_OPTIONS, durationToMinutes, minutesToDuration } from '@/lib/serviceStatus'
 import { CANCELLED_NOTICE, UNVERIFIED_NOTICE, resolveServiceAccess, loadServiceContext, mergeServiceContext, verifyQuoteWritable } from '@/lib/serviceGuard'
-import { describeServiceApiResult } from '@/lib/serviceApiMessages'
+import { describeServiceApiResult, describeServiceApiFailure, describeServiceWriteError, describeUnconfirmedOperation, SYNC_ERROR_NOTICE } from '@/lib/serviceApiMessages'
+import { withDeadline, fetchServiceApi } from '@/lib/serviceRequest'
 
 function toDatetimeLocal(d) {
   if (!d) return ''
@@ -110,79 +111,109 @@ export default function EditarServicioPage() {
     setError('')
     setWarning('')
     setSaving(true)
-    if (!(await ensureWritable())) { setSaving(false); return }
+    // Etapa 2.2a — qué se puede afirmar si algo lanza una excepción (red, sesión...). `stage` avanza solo hacia adelante:
+    //   'not_started' aún no se envió nada | 'calendar_unknown' la ruta pudo ejecutarse (Calendar y/o base) sin respuesta
+    //   'write_unknown' el UPDATE directo pudo aplicarse sin respuesta | 'calendar_after_save' el UPDATE se confirmó
+    // Ante una excepción se muestra una advertencia sin afirmar éxito ni fracaso definitivo; NO se reintenta nada ni se
+    // recarga el formulario (los datos capturados se conservan). `finally` garantiza que Guardar no quede en "Guardando…".
+    // Etapa 2.2b — cada espera de red tiene plazo (lib/serviceRequest.js): al vencer se trata como una excepción más (resultado
+    // desconocido). Vencer el plazo NO cancela el trabajo del servidor; solo la espera de esta pantalla.
+    let stage = 'not_started'
+    try {
+      if (!(await withDeadline(() => ensureWritable()))) return
 
-    if (form.status === 'cancelado') {
-      const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch('/api/services/cancel', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ serviceId: service.id }),
-      })
-      setSaving(false)
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) { report(describeServiceApiResult({ ok: false, body }, { fallback: 'No se pudo cancelar.' })); return }
-      report(describeServiceApiResult({ ok: true, body }))
+      if (form.status === 'cancelado') {
+        const { data: { session } } = await withDeadline(() => supabase.auth.getSession())
+        stage = 'calendar_unknown'
+        const res = await fetchServiceApi('/api/services/cancel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+          body: JSON.stringify({ serviceId: service.id }),
+        })
+        // Etapa 2.2b: un 5xx sin el JSON de la API (infraestructura) es resultado desconocido, no un fallo definitivo.
+        if (!res.ok) { report(describeServiceApiFailure(res, 'calendar_unknown', { fallback: 'No se pudo cancelar.' })); return }
+        report(describeServiceApiResult({ ok: true, body: res.body }))
+        load()
+        return
+      }
+
+      // "Pendiente de agendar" indica que el cliente todavía no define fecha —
+      // no debe quedar ni fecha ni evento en Google Calendar hasta que se
+      // vuelva a editar el servicio agregando una nueva fecha y hora. Solo
+      // dispara si es un cambio de estatus explícito (venía de otro estatus):
+      // si ya estaba pendiente y solo se le agrega fecha, eso sigue el flujo
+      // normal de abajo, que lo promueve a "Agendado".
+      if (form.status === 'pendiente_agendar' && service.status !== 'pendiente_agendar') {
+        const { data: { session } } = await withDeadline(() => supabase.auth.getSession())
+        stage = 'calendar_unknown'
+        const res = await fetchServiceApi('/api/services/clear-schedule', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+          body: JSON.stringify({ serviceId: service.id }),
+        })
+        if (!res.ok) { report(describeServiceApiFailure(res, 'calendar_unknown', { fallback: 'No se pudo limpiar la fecha y el evento de calendario.' })); return }
+        report(describeServiceApiResult({ ok: true, body: res.body }))
+        load()
+        return
+      }
+
+      const startAtIso = form.startAt ? new Date(form.startAt).toISOString() : null
+      stage = 'write_unknown'
+      const { error: updateError, status: updateStatus } = await withDeadline((signal) => supabase.from('services').update({
+        service_type: form.serviceType,
+        address: form.address,
+        notes: form.notes,
+        duration_value: form.durationValue === '' ? null : form.durationValue,
+        duration_unit: form.durationUnit,
+        duration_minutes: durationToMinutes(form.durationValue, form.durationUnit) || 60,
+        start_at: startAtIso,
+        status: form.status === 'pendiente_agendar' && startAtIso ? 'agendado' : form.status,
+        updated_at: new Date().toISOString(),
+      }).eq('id', service.id).abortSignal(signal))
+
+      if (updateError) {
+        // Etapa 2.2: el rechazo de la base se traduce a un mensaje seguro (nunca el texto crudo de PostgreSQL). Sin reintentos.
+        // Etapa 2.2a: sin respuesta HTTP (status 0) el UPDATE pudo haberse aplicado: se avisa sin afirmar que falló.
+        const failure = describeServiceWriteError(updateError, updateStatus)
+        if (failure.unconfirmed) report(describeUnconfirmedOperation('write_unknown'))
+        else setError(failure.message)
+        if (failure.contractCancelled) markCancelled()      // DS001: la contratación está cancelada; la pantalla pasa a solo consulta (no cambia datos)
+        return
+      }
+      stage = 'calendar_after_save'
+
+      if (startAtIso) {
+        const ok = await syncCalendar(true)             // el UPDATE del servicio ya se confirmó: una falla aquí es de la sincronización
+        if (!ok) return
+      }
+
       load()
-      return
-    }
-
-    // "Pendiente de agendar" indica que el cliente todavía no define fecha —
-    // no debe quedar ni fecha ni evento en Google Calendar hasta que se
-    // vuelva a editar el servicio agregando una nueva fecha y hora. Solo
-    // dispara si es un cambio de estatus explícito (venía de otro estatus):
-    // si ya estaba pendiente y solo se le agrega fecha, eso sigue el flujo
-    // normal de abajo, que lo promueve a "Agendado".
-    if (form.status === 'pendiente_agendar' && service.status !== 'pendiente_agendar') {
-      const { data: { session } } = await supabase.auth.getSession()
-      const res = await fetch('/api/services/clear-schedule', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ serviceId: service.id }),
-      })
+    } catch {
+      report(describeUnconfirmedOperation(stage))
+    } finally {
       setSaving(false)
-      const body = await res.json().catch(() => ({}))
-      if (!res.ok) { report(describeServiceApiResult({ ok: false, body }, { fallback: 'No se pudo limpiar la fecha y el evento de calendario.' })); return }
-      report(describeServiceApiResult({ ok: true, body }))
-      load()
-      return
     }
-
-    const startAtIso = form.startAt ? new Date(form.startAt).toISOString() : null
-    const { error: updateError } = await supabase.from('services').update({
-      service_type: form.serviceType,
-      address: form.address,
-      notes: form.notes,
-      duration_value: form.durationValue === '' ? null : form.durationValue,
-      duration_unit: form.durationUnit,
-      duration_minutes: durationToMinutes(form.durationValue, form.durationUnit) || 60,
-      start_at: startAtIso,
-      status: form.status === 'pendiente_agendar' && startAtIso ? 'agendado' : form.status,
-      updated_at: new Date().toISOString(),
-    }).eq('id', service.id)
-
-    if (updateError) { setSaving(false); setError('No se pudo guardar: ' + updateError.message); return }
-
-    if (startAtIso) {
-      const ok = await syncCalendar(true)             // el UPDATE del servicio ya se confirmó: una falla aquí es de la sincronización
-      if (!ok) { setSaving(false); return }
-    }
-
-    setSaving(false)
-    load()
   }
 
   async function syncCalendar(serviceSaved = false) {
     if (!access.canWrite) return false
-    const { data: { session } } = await supabase.auth.getSession()
-    const res = await fetch('/api/services/sync-calendar', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
-      body: JSON.stringify({ serviceId: service.id }),
-    })
+    let res
+    try {
+      const { data: { session } } = await withDeadline(() => supabase.auth.getSession())
+      res = await fetchServiceApi('/api/services/sync-calendar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ serviceId: service.id }),
+      })
+    } catch {
+      // Etapa 2.2a/2.2b: sin respuesta (red caída o plazo vencido) no se sabe si Calendar creó/actualizó el evento ni si la base lo
+      // registró; el plazo solo cancela la espera, no el trabajo del servidor. No se reintenta.
+      report(describeUnconfirmedOperation(serviceSaved ? 'calendar_after_save' : 'calendar_unknown'))
+      return false
+    }
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}))
-      report(describeServiceApiResult({ ok: false, body }, { genericPrefix: 'No se pudo sincronizar con Google Calendar: ', fallback: 'error desconocido', serviceSaved }))
+      // Etapa 2.2b: 5xx de infraestructura (sin el JSON de la API) => resultado desconocido; con el JSON de la API, mensajes de siempre.
+      report(describeServiceApiFailure(res, serviceSaved ? 'calendar_after_save' : 'calendar_unknown', { genericPrefix: 'No se pudo sincronizar con Google Calendar: ', fallback: 'error desconocido', serviceSaved }))
       return false
     }
     return true
@@ -194,8 +225,13 @@ export default function EditarServicioPage() {
     setError('')
     setWarning('')
     setSaving(true)
-    if (await ensureWritable()) await syncCalendar()
-    setSaving(false)
+    try {
+      if (await withDeadline(() => ensureWritable())) await syncCalendar()
+    } catch {
+      report(describeUnconfirmedOperation('not_started'))
+    } finally {
+      setSaving(false)
+    }
     load()
   }
 
@@ -218,7 +254,7 @@ export default function EditarServicioPage() {
 
       {service.sync_status === 'error' && (
         <div className="editbanner">
-          <span>No se pudo sincronizar con Google Calendar: {service.sync_error}</span>
+          <span>{SYNC_ERROR_NOTICE}</span>
           {!readOnly && <button className="btn ghost small" disabled={saving} onClick={retrySync}>Reintentar</button>}
         </div>
       )}

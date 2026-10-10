@@ -5,7 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { durationToMinutes } from '@/lib/serviceStatus'
 import { loadNewServiceTarget, validateQuoteForNewService, verifyQuoteForNewService } from '@/lib/serviceGuard'
-import { newServiceSyncAlertText } from '@/lib/serviceApiMessages'
+import { newServiceSyncAlertText, describeServiceWriteError, describeUnconfirmedOperation, isInfrastructureFailure } from '@/lib/serviceApiMessages'
+import { withDeadline, fetchServiceApi } from '@/lib/serviceRequest'
 
 function toDatetimeLocal(d) {
   if (!d) return ''
@@ -60,57 +61,79 @@ function NuevoServicioInner() {
     setError('')
     setSaving(true)
 
-    // Re-valida el estado contractual justo antes de insertar (puede haberse cancelado con la pantalla abierta).
-    // Mejor esfuerzo desde el navegador: no es definitivo ante una cancelación concurrente (Etapas 2 y 3).
-    const check = await verifyQuoteForNewService(supabase, quote.id)
-    if (!check.ok) { setSaving(false); setError(check.message); return }
+    // Etapa 2.2a — qué se puede afirmar si algo lanza una excepción: 'not_started' (aún no se insertó nada) o
+    // 'write_unknown' (el INSERT pudo aplicarse sin que llegara la respuesta). Nunca se repite el INSERT ni la sincronización.
+    // `finally` garantiza que Guardar no quede en "Guardando…". Los datos del formulario se conservan.
+    // Etapa 2.2b — cada espera de red tiene plazo (lib/serviceRequest.js): al vencer se trata como una excepción más (resultado
+    // desconocido). Vencer el plazo NO cancela el trabajo del servidor; solo la espera de esta pantalla.
+    let stage = 'not_started'
+    try {
+      // Re-valida el estado contractual justo antes de insertar (puede haberse cancelado con la pantalla abierta).
+      // Mejor esfuerzo desde el navegador: no es definitivo ante una cancelación concurrente (Etapas 2 y 3).
+      const check = await withDeadline(() => verifyQuoteForNewService(supabase, quote.id))
+      if (!check.ok) { setError(check.message); return }
 
-    const startAtIso = form.startAt ? new Date(form.startAt).toISOString() : null
-    const payload = {
-      quote_id: quote.id,
-      client_id: quote.client_id,
-      service_type: form.serviceType,
-      address: form.address,
-      notes: form.notes,
-      duration_value: form.durationValue === '' ? null : form.durationValue,
-      duration_unit: form.durationUnit,
-      duration_minutes: durationToMinutes(form.durationValue, form.durationUnit) || 60,
-      start_at: startAtIso,
-      status: startAtIso ? 'agendado' : 'pendiente_agendar',
-    }
+      const startAtIso = form.startAt ? new Date(form.startAt).toISOString() : null
+      const payload = {
+        quote_id: quote.id,
+        client_id: quote.client_id,
+        service_type: form.serviceType,
+        address: form.address,
+        notes: form.notes,
+        duration_value: form.durationValue === '' ? null : form.durationValue,
+        duration_unit: form.durationUnit,
+        duration_minutes: durationToMinutes(form.durationValue, form.durationUnit) || 60,
+        start_at: startAtIso,
+        status: startAtIso ? 'agendado' : 'pendiente_agendar',
+      }
 
-    const { data: { session } } = await supabase.auth.getSession()
-    if (startAtIso) payload.calendar_owner = session?.user?.id
+      const { data: { session } } = await withDeadline(() => supabase.auth.getSession())
+      if (startAtIso) payload.calendar_owner = session?.user?.id
 
-    const { data: created, error: insertError } = await supabase.from('services').insert(payload).select().single()
+      stage = 'write_unknown'
+      const { data: created, error: insertError, status: insertStatus } = await withDeadline((signal) => supabase.from('services').insert(payload).select().single().abortSignal(signal))
 
-    if (insertError) {
-      setSaving(false)
-      if (insertError.code === '23505') {
-        setError('Esta cotización ya tiene un servicio agendado.')
-        const { data: existing } = await supabase.from('services').select('id').eq('quote_id', quote.id).single()
-        if (existing) router.push(`/servicios/${existing.id}`)
+      if (insertError) {
+        if (insertError.code === '23505') {
+          setError('Esta cotización ya tiene un servicio agendado.')
+          // Solo para llevar a la persona al servicio existente: si esta consulta falla o vence el plazo, el aviso de arriba basta.
+          let existing = null
+          try { ({ data: existing } = await withDeadline((signal) => supabase.from('services').select('id').eq('quote_id', quote.id).single().abortSignal(signal))) } catch { existing = null }
+          if (existing) router.push(`/servicios/${existing.id}`)
+          return
+        }
+        // Etapa 2.2: mensaje seguro, nunca el texto crudo de PostgreSQL. Etapa 2.2a: sin respuesta HTTP el INSERT pudo aplicarse.
+        setError(describeServiceWriteError(insertError, insertStatus).message)
         return
       }
-      setError('No se pudo guardar: ' + insertError.message)
-      return
-    }
+      stage = 'saved'
 
-    if (startAtIso) {
-      const res = await fetch('/api/services/sync-calendar', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
-        body: JSON.stringify({ serviceId: created.id }),
-      })
-      if (!res.ok) {
-        const json = await res.json().catch(() => ({}))
-        // El servicio YA se guardó. alert() es modal: el mensaje (discrepancia, compensación, código) se ve antes de navegar.
-        alert(newServiceSyncAlertText(json))
+      if (startAtIso) {
+        let res = null
+        try {
+          res = await fetchServiceApi('/api/services/sync-calendar', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+            body: JSON.stringify({ serviceId: created.id }),
+          })
+        } catch {
+          // El servicio YA se guardó pero no hay respuesta de la sincronización (red caída o plazo vencido; el plazo no cancela el
+          // trabajo del servidor): se avisa (modal, antes de navegar) sin afirmar éxito ni fracaso, y se navega al servicio creado para que NO se vuelva a crear. No se reintenta.
+          alert(describeUnconfirmedOperation('calendar_after_save').message)
+        }
+        if (res && !res.ok) {
+          // El servicio YA se guardó. alert() es modal: el mensaje (discrepancia, compensación, código) se ve antes de navegar.
+          // Etapa 2.2b: un 5xx de infraestructura (sin el JSON de la API) es resultado desconocido, no un fallo definitivo.
+          alert(isInfrastructureFailure(res) ? describeUnconfirmedOperation('calendar_after_save').message : newServiceSyncAlertText(res.body))
+        }
       }
-    }
 
-    setSaving(false)
-    router.push(`/servicios/${created.id}`)
+      router.push(`/servicios/${created.id}`)
+    } catch {
+      setError(describeUnconfirmedOperation(stage === 'saved' ? 'calendar_after_save' : stage).message)
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (!ready) return <div>Cargando…</div>
