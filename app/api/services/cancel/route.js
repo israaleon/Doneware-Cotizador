@@ -26,20 +26,28 @@ export async function POST(request) {
     const blocked = guardOperation('cancel', service, quote)
     if (blocked) return apiError(blocked)
 
-    let eventDeleted = false
-    if (service.google_event_id && service.calendar_owner) {
-      try { await deleteEvent(service.calendar_owner, service.google_event_id); eventDeleted = true }
-      catch { /* si falla borrar el evento, igual cancelamos el servicio localmente */ }
+    // Fase B / D-01 — el servicio SIEMPRE se cancela (regla existente), pero la referencia al evento solo se borra cuando Google
+    // CONFIRMÓ que ya no existe (borrado real, o 404/410). Cualquier otra cosa (5xx, red, token revocado, respuesta perdida, o un
+    // evento sin dueño de calendario al que pedírselo) deja la limpieza PENDIENTE: se conservan google_event_id / google_event_link /
+    // sync_status para poder reintentar (volver a cancelar es idempotente y nunca reactiva) y la respuesta lo advierte.
+    //   'none' sin evento | 'deleted' | 'already_gone' | 'pending'
+    let cleanup = 'none'
+    if (service.google_event_id) {
+      if (service.calendar_owner) {
+        try {
+          const result = await deleteEvent(service.calendar_owner, service.google_event_id)
+          cleanup = result === 'deleted' || result === 'already_gone' ? result : 'pending'     // un retorno inesperado nunca se toma por borrado
+        } catch { cleanup = 'pending' }
+      } else {
+        cleanup = 'pending'            // sin dueño del calendario no se puede borrar ni verificar el evento
+      }
     }
+    const eventDeleted = cleanup === 'deleted' || cleanup === 'already_gone'
 
-    const saved = updateFailure(await supabaseAdmin.from('services').update({
-      status: 'cancelado',
-      google_event_id: null,
-      google_event_link: null,
-      sync_status: 'no_agendado',
-      sync_error: null,
-      updated_at: new Date().toISOString(),
-    }).eq('id', serviceId).select('id'))
+    // Pendiente: solo cambia el estado (cabe en las excepciones X1/X2 del trigger, que solo permiten LIMPIAR campos de Calendar).
+    const update = { status: 'cancelado', updated_at: new Date().toISOString() }
+    if (eventDeleted || cleanup === 'none') Object.assign(update, { google_event_id: null, google_event_link: null, sync_status: 'no_agendado', sync_error: null })
+    const saved = updateFailure(await supabaseAdmin.from('services').update(update).eq('id', serviceId).select('id'))
 
     if (saved) {
       // Evento ya eliminado pero la fila no cambió: se reporta. Reintentar la cancelación es seguro (404/410 se toleran).
@@ -48,7 +56,7 @@ export async function POST(request) {
       return apiError(saved.code, extra)
     }
 
-    return Response.json({ ok: true })
+    return Response.json({ ok: true, ...(cleanup === 'pending' ? { calendarWarning: 'event_delete_pending' } : {}) })
   } catch (err) {
     return Response.json({ error: err.message || 'Error inesperado.' }, { status: 500 })
   }

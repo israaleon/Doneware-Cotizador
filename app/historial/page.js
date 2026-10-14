@@ -207,7 +207,7 @@ export default function HistorialPage() {
         }
       }
       if (failures.length) {
-        alert('Contratación cancelada correctamente, pero uno o más eventos de Google Calendar no pudieron eliminarse.')
+        alert('Contratación cancelada correctamente, pero uno o más eventos de Google Calendar no pudieron eliminarse. Puedes reintentar la limpieza desde el detalle del servicio («Reintentar limpieza de Calendar»).')
       }
     }
   }

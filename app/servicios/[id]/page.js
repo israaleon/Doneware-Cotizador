@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { SERVICE_STATUS_OPTIONS as STATUS_OPTIONS, durationToMinutes, minutesToDuration } from '@/lib/serviceStatus'
-import { CANCELLED_NOTICE, UNVERIFIED_NOTICE, resolveServiceAccess, loadServiceContext, mergeServiceContext, verifyQuoteWritable } from '@/lib/serviceGuard'
-import { describeServiceApiResult, describeServiceApiFailure, describeServiceWriteError, describeUnconfirmedOperation, SYNC_ERROR_NOTICE } from '@/lib/serviceApiMessages'
+import { CANCELLED_NOTICE, UNVERIFIED_NOTICE, resolveServiceAccess, loadServiceContext, mergeServiceContext, verifyQuoteWritable, canRetryCalendarCleanup } from '@/lib/serviceGuard'
+import { describeServiceApiResult, describeServiceApiFailure, describeServiceWriteError, describeUnconfirmedOperation, SYNC_ERROR_NOTICE, CLEANUP_RETRY_SUCCESS_MESSAGE } from '@/lib/serviceApiMessages'
 import { withDeadline, fetchServiceApi } from '@/lib/serviceRequest'
 
 function toDatetimeLocal(d) {
@@ -41,6 +41,7 @@ export default function EditarServicioPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [warning, setWarning] = useState('')   // la operación se guardó pero hay algo que revisar (Calendar)
+  const [info, setInfo] = useState('')         // éxito del reintento de limpieza de Calendar
   const reqRef = useRef(0)
 
   const current = ctx && ctx.id === id ? ctx : null
@@ -235,6 +236,33 @@ export default function EditarServicioPage() {
     load()
   }
 
+  // Reintento de la limpieza de Calendar con la contratación ya cancelada. Usa /api/services/cancel (ruta validada): solo puede dejar el
+  // servicio CANCELADO (nunca lo reactiva) y borra la referencia únicamente si Google confirma que el evento ya no existe. No habilita edición.
+  async function retryCalendarCleanup() {
+    if (!canRetryCalendarCleanup(access, service)) return
+    setError('')
+    setWarning('')
+    setInfo('')
+    setSaving(true)
+    try {
+      const { data: { session } } = await withDeadline(() => supabase.auth.getSession())
+      const res = await fetchServiceApi('/api/services/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token}` },
+        body: JSON.stringify({ serviceId: service.id }),
+      })
+      if (!res.ok) { report(describeServiceApiFailure(res, 'calendar_unknown', { fallback: 'No se pudo reintentar la limpieza de Google Calendar.' })); return }
+      const desc = describeServiceApiResult({ ok: true, body: res.body }, { readOnly: true })
+      if (desc) report(desc)                      // limpieza pendiente (advertencia) o discrepancia
+      else setInfo(CLEANUP_RETRY_SUCCESS_MESSAGE) // éxito completo
+    } catch {
+      report(describeUnconfirmedOperation('calendar_unknown'))
+    } finally {
+      setSaving(false)
+      load()
+    }
+  }
+
   const readOnly = !access.canWrite
 
   return (
@@ -244,6 +272,12 @@ export default function EditarServicioPage() {
 
       {access.mode === 'readonly' && (
         <div className="editbanner"><span>{CANCELLED_NOTICE}</span></div>
+      )}
+      {canRetryCalendarCleanup(access, service) && (
+        <div className="editbanner">
+          <span>Este servicio conserva la referencia a un evento de Google Calendar. Si el evento no se pudo eliminar al cancelar la contratación, puedes reintentar la limpieza. El servicio permanece cancelado.</span>
+          <button className="btn ghost small" disabled={saving} onClick={retryCalendarCleanup}>Reintentar limpieza de Calendar</button>
+        </div>
       )}
       {access.mode === 'unverified' && (
         <div className="editbanner">
@@ -317,6 +351,7 @@ export default function EditarServicioPage() {
 
           {error && <div className="fielderr">{error}</div>}
           {warning && <div className="editbanner" style={{ marginTop: 10 }}><span>{warning}</span></div>}
+          {info && <div className="editbanner" style={{ marginTop: 10 }}><span>✓ {info}</span></div>}
           <div className="actionsbar">
             {!readOnly && <button className="btn teal" disabled={saving} onClick={handleSave}>{saving ? 'Guardando…' : 'Guardar cambios'}</button>}
             <button className="btn ghost" onClick={() => router.push('/servicios')}>Volver</button>

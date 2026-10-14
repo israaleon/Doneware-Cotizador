@@ -7,8 +7,13 @@
 // (Fase 6.6, punto 18) — a diferencia de /api/services/cancel, que sí lo
 // limpia porque resuelve un caso distinto (cancelar un servicio suelto, no
 // contractual).
+//
+// Fase B / D-02 — antes de tocar Google se verifica en la base (service.quote_id leído de la base, nunca un dato del navegador) que
+// la limpieza procede: contratación CANCELADA y servicio CANCELADO (justo como los deja cancel_quote_contract). Un servicio vigente
+// o realizado conserva su evento. Cualquier duda (cotización ilegible, estado desconocido) rechaza SIN borrar nada.
 import { supabaseAdmin } from '@/lib/supabaseAdmin'
 import { deleteEvent } from '@/lib/googleCalendar'
+import { apiError, loadQuoteForGuard, guardOperation } from '@/lib/serviceApiGuard'
 
 export async function POST(request) {
   try {
@@ -20,14 +25,22 @@ export async function POST(request) {
 
     const { serviceId } = await request.json()
     const { data: service, error: svcError } = await supabaseAdmin
-      .from('services').select('google_event_id, calendar_owner').eq('id', serviceId).single()
+      .from('services').select('google_event_id, calendar_owner, status, quote_id').eq('id', serviceId).single()
     if (svcError || !service) return Response.json({ error: 'No se encontró el servicio.' }, { status: 404 })
 
-    if (!service.google_event_id || !service.calendar_owner) {
+    const { quote, unverified } = await loadQuoteForGuard(supabaseAdmin, service.quote_id)
+    if (unverified) return apiError('CONTRACT_UNVERIFIED')
+    const blocked = guardOperation('calendar_cleanup', service, quote)
+    if (blocked) return apiError(blocked)
+
+    if (!service.google_event_id) {
       return Response.json({ ok: true, skipped: true })
     }
-    await deleteEvent(service.calendar_owner, service.google_event_id)
-    return Response.json({ ok: true })
+    // Hay referencia a un evento pero no se sabe en qué calendario está: no se puede borrar ni verificar. Nunca se responde éxito.
+    if (!service.calendar_owner) return apiError('CALENDAR_OWNER_MISSING')
+    // 'deleted' | 'already_gone' (Google confirmó 404/410). Si Google falla, deleteEvent lanza y no se escribe nada en la base.
+    const calendar = await deleteEvent(service.calendar_owner, service.google_event_id)
+    return Response.json({ ok: true, calendar })
   } catch (err) {
     return Response.json({ error: err.message || 'Error inesperado.' }, { status: 500 })
   }
