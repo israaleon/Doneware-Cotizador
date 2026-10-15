@@ -1,6 +1,6 @@
 // app/historial/page.js
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { fmt, isValidEmail, isValidPhone10 } from '@/lib/calc'
@@ -12,6 +12,10 @@ import { getQuotePdfPath, removeQuoteRevisionFiles } from '@/lib/quotePdfStorage
 import { canDeleteQuote, canContractQuote, canCancelContract } from '@/lib/quoteLifecycle'
 import { groupServicesByQuote, resolveQuoteServiceView, serviceActionLabel, serviceActionHref } from '@/lib/quoteServiceView'
 import SendMenu from '@/components/SendMenu'
+import {
+  loadHistorialData, logHistorialFailures, createLoadTracker,
+  HISTORIAL_LOAD_ERROR_MESSAGE, HISTORIAL_REFRESH_ERROR_MESSAGE,
+} from '@/lib/historialLoad'
 
 const PAGE_SIZE = 20
 
@@ -26,18 +30,42 @@ export default function HistorialPage() {
   const [expanded, setExpanded] = useState({}) // id de cotización -> true si su recibo está desplegado
   const [contractingId, setContractingId] = useState(null) // id de la quote que se está contratando (evita doble clic)
   const [cancellingId, setCancellingId] = useState(null) // id de la quote que se está cancelando
+  const [loadState, setLoadState] = useState('loading') // loading | ready | error
+  const [errorKind, setErrorKind] = useState('load') // load | refresh (la acción ya se completó)
+  const [busy, setBusy] = useState(false) // hay una consulta en curso
+  const trackerRef = useRef(createLoadTracker())
   const router = useRouter()
 
-  async function load() {
-    const [{ data: q }, { data: cfg }, { data: svc }] = await Promise.all([
-      supabase.from('quotes').select('*').order('created_at', { ascending: false }),
-      supabase.from('app_config').select('*').eq('id', 1).single(),
-      supabase.from('services').select('id, quote_id, status'),
-    ])
-    setQuotes(q || [])
-    setConfig(cfg)
-    setServices(svc || [])
+  // La carga es todo-o-nada (lib/historialLoad.js): o llegan quotes, app_config
+  // y services completos, o la pantalla pasa a 'error' con «Reintentar» — nunca
+  // se queda en «Cargando…» ni pinta una lista vacía por un fallo. Nunca lanza.
+  // `afterAction`: la recarga viene de una acción de negocio YA completada; si
+  // falla, el aviso lo dice y no sugiere repetir la acción. Solo la solicitud
+  // más reciente escribe el estado (una respuesta antigua se descarta).
+  async function load({ afterAction = false } = {}) {
+    const id = trackerRef.current.begin()
+    setBusy(true)
+    const result = await loadHistorialData(supabase)
+    trackerRef.current.finish(id)
+    if (!trackerRef.current.isCurrent(id)) return { ok: result.ok, stale: true }
+    setBusy(false)
+    if (!result.ok) {
+      logHistorialFailures(result.failures)
+      setErrorKind(afterAction ? 'refresh' : 'load')
+      setLoadState('error')
+      return { ok: false }
+    }
+    setQuotes(result.quotes)
+    setConfig(result.config)
+    setServices(result.services)
+    setLoadState('ready')
+    return { ok: true }
   }
+  function retry() {
+    if (trackerRef.current.pending()) return // ya hay una consulta en curso: sin solicitudes superpuestas
+    load({ afterAction: errorKind === 'refresh' })
+  }
+  useEffect(() => { const t = trackerRef.current; t.start(); return () => t.stop() }, [])
   useEffect(() => { load() }, [])
   useEffect(() => { setPage(1) }, [searchText, searchDate, typeFilter])
 
@@ -88,7 +116,23 @@ export default function HistorialPage() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
 
-  if (!config) return <div>Cargando…</div>
+  if (loadState === 'loading') return <div>Cargando…</div>
+  if (loadState === 'error') {
+    return (
+      <div>
+        <h2 className="pagetitle">Historial</h2>
+        <div className="pagesub">Todas tus cotizaciones y recibos.</div>
+        <div className="panel">
+          <div className="muted" style={{ padding: 30, textAlign: 'center' }}>
+            <div role="alert" style={{ marginBottom: 12 }}>
+              {errorKind === 'refresh' ? HISTORIAL_REFRESH_ERROR_MESSAGE : HISTORIAL_LOAD_ERROR_MESSAGE}
+            </div>
+            <button className="btn teal small" disabled={busy} onClick={retry}>{busy ? 'Reintentando…' : 'Reintentar'}</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   async function downloadPdf(rec) {
     const result = await resolveQuoteDownload(rec, config)
@@ -152,7 +196,7 @@ export default function HistorialPage() {
       return
     }
     const data = result.data
-    await load()
+    await load({ afterAction: true })
     // already_contracted=true (reintento/doble clic detectado por la propia
     // RPC) no trae receipt_folio — no es un error, es el resultado idempotente
     // esperado; no hay nada nuevo que descargar.
@@ -187,7 +231,7 @@ export default function HistorialPage() {
       alert('No se pudo cancelar la contratación: ' + error.message)
       return
     }
-    await load()
+    await load({ afterAction: true })
     if (data.already_cancelled) return
 
     const affected = (data.affected_services || []).filter((s) => s.google_event_id)
@@ -248,7 +292,7 @@ export default function HistorialPage() {
     // (quotes/{id}/revisions/*), que ya no se pueden nombrar de antemano.
     const removedRevisions = await removeQuoteRevisionFiles(rec.id)
     if (!removed.ok || !removedRevisions.ok) alert('Se eliminó correctamente, pero no fue posible limpiar sus archivos asociados en Storage (quedaron huérfanos, sin afectar el resto del sistema).')
-    load()
+    load({ afterAction: true })
   }
 
   // Una fila del historial. Las cotizaciones son el registro principal; su
