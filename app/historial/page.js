@@ -273,8 +273,24 @@ export default function HistorialPage() {
       `¿Seguro que deseas eliminar ${tipo} ${rec.folio}?${extra}\n\nEsta acción no se puede deshacer: una vez borrado no podrás recuperarlo.`
     )
     if (!ok) return
-    const { error } = await supabase.from('quotes').delete().eq('id', rec.id)
-    if (error) { alert('No se pudo eliminar: ' + error.message); return }
+    // H4-1 — el DELETE debe CONFIRMAR la fila eliminada. Si la política de
+    // congelación (quotes_delete_lock) lo bloquea (p. ej. la cotización fue
+    // contratada desde otra sesión), PostgREST responde SIN error y con 0
+    // filas. Ante error, respuesta ausente/inesperada o 0 filas se corta aquí:
+    // ni recibo ni Storage se tocan, y no se afirma que algo se eliminó.
+    const res = await supabase.from('quotes').delete().eq('id', rec.id).select('id')
+    if (res && res.error) { alert('No se pudo eliminar: ' + res.error.message); return }
+    const deleted = res ? res.data : null
+    if (Array.isArray(deleted) && deleted.length === 0) {
+      alert('No se eliminó nada: el registro pudo cambiar (por ejemplo, fue contratado o eliminado desde otra sesión). Se actualiza el listado; revisa su estado actual.')
+      await load()
+      return
+    }
+    if (!Array.isArray(deleted) || deleted.length !== 1 || !deleted[0] || deleted[0].id !== rec.id) {
+      alert('No se pudo confirmar la eliminación: el servidor respondió de forma inesperada. No se borró ningún archivo asociado. Se actualiza el listado; revisa el estado actual del registro.')
+      await load()
+      return
+    }
     // Eliminación en cascada: primero la cotización (si falla, el recibo no
     // queda huérfano) y después su recibo asociado.
     if (!isReceipt) {
