@@ -9,6 +9,7 @@ import { triggerPdfDownload, resolveQuoteDownload } from '@/lib/pdf'
 import { contractQuoteFlow } from '@/lib/quoteContracting'
 import { getHistoricalLogoPath, removePaths } from '@/lib/quoteLogo'
 import { getQuotePdfPath, removeQuoteRevisionFiles } from '@/lib/quotePdfStorage'
+import { describeCleanupPending } from '@/lib/storageVerifiedRemove'
 import { canDeleteQuote, canContractQuote, canCancelContract } from '@/lib/quoteLifecycle'
 import { groupServicesByQuote, resolveQuoteServiceView, serviceActionLabel, serviceActionHref } from '@/lib/quoteServiceView'
 import SendMenu from '@/components/SendMenu'
@@ -303,11 +304,20 @@ export default function HistorialPage() {
     // llega aquí con una contratada/cancelada/recibo — esta limpieza es,
     // por diseño, exclusiva de la eliminación física precontrato. Un fallo
     // aquí no revierte ni bloquea el borrado, que ya se completó.
-    const removed = await removePaths([getHistoricalLogoPath(rec.id), getQuotePdfPath(rec.id)])
+    const removed = await removePaths([getHistoricalLogoPath(rec.id), getQuotePdfPath(rec.id)], { allowedPrefix: `quotes/${rec.id}/` })
     // Fase 6.7C-1 — además, los PDFs/logos de revisión de ESTA cotización
     // (quotes/{id}/revisions/*), que ya no se pueden nombrar de antemano.
     const removedRevisions = await removeQuoteRevisionFiles(rec.id)
-    if (!removed.ok || !removedRevisions.ok) alert('Se eliminó correctamente, pero no fue posible limpiar sus archivos asociados en Storage (quedaron huérfanos, sin afectar el resto del sistema).')
+    // Migración 2 — Storage responde éxito con lista vacía cuando una política impide
+    // borrar, así que `ok` viene VERIFICADO por rutas (lib/storageVerifiedRemove.js).
+    // La cotización ya está eliminada: si la limpieza quedó incompleta solo se avisa
+    // como PENDIENTE (sin sugerir repetir la eliminación ni revertir nada).
+    const cleanupResults = [removed, removedRevisions]
+    if (!cleanupResults.every((r) => r && r.ok === true)) {
+      // Solo el folio y estados de un vocabulario fijo: nunca rutas, mensajes de error crudos ni datos de sesión.
+      console.warn('Limpieza de Storage pendiente', rec.folio, cleanupResults.map((r) => (r && typeof r.status === 'string' ? r.status : 'sin_resultado')).join(','))
+      alert(describeCleanupPending(rec.folio, cleanupResults))
+    }
     load({ afterAction: true })
   }
 
