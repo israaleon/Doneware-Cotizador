@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
+import { isPublicQuotePath } from '@/lib/publicRoutes'
 
 const ITEMS = [
   { href: '/cotizar', label: 'Nueva cotización' },
@@ -22,7 +23,7 @@ export default function Sidebar() {
   // Cierra el drawer automáticamente al cambiar de pestaña.
   useEffect(() => { setOpen(false) }, [pathname])
 
-  if (pathname === '/login') return null
+  if (pathname === '/login' || isPublicQuotePath(pathname)) return null
 
   async function logout() {
     await supabase.auth.signOut()
