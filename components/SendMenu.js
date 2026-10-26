@@ -7,7 +7,7 @@ import { createPortal } from 'react-dom'
 // Se posiciona con las coordenadas reales del botón (getBoundingClientRect)
 // y se pinta en un portal directo a <body>, así nunca queda atrapado ni
 // recortado por el contenedor de la fila ni empuja nada hacia abajo.
-export default function SendMenu({ onEmail, onWhatsapp, disabled }) {
+export default function SendMenu({ onEmail, onWhatsapp, onOpen, disabled }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState({ top: 0, left: 0 })
   const btnRef = useRef(null)
@@ -17,6 +17,8 @@ export default function SendMenu({ onEmail, onWhatsapp, disabled }) {
       const r = btnRef.current.getBoundingClientRect()
       setPos({ top: r.bottom + 6, left: r.right })
     }
+    // Al abrir el menú el llamador puede preparar datos (p. ej. el enlace de {link}) antes de que se elija Correo/WhatsApp.
+    if (!open && typeof onOpen === 'function') onOpen()
     setOpen((o) => !o)
   }
 

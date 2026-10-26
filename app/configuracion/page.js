@@ -228,7 +228,8 @@ export default function ConfiguracionPage() {
 
       <div className="panel">
         <h3>Plantillas para cotizaciones</h3>
-        <div className="helptext">Variables: {'{cliente} {empresa} {folio} {tipo} {Tipo} {total} {vigencia} {telefono_empresa} {referencia}'}</div>
+        <div className="helptext">Variables: {'{cliente} {empresa} {folio} {tipo} {Tipo} {total} {vigencia} {telefono_empresa} {referencia} {link}'}</div>
+        <div className="helptext">{'{link}'} es el enlace para revisar y aceptar la cotización en línea (solo cotizaciones publicadas y vigentes). Si una cotización no tiene enlace —por ejemplo, una antigua— se omite la línea completa donde escribas {'{link}'}; ponlo en una línea propia, como «Revísala y acéptala aquí: {'{link}'}».</div>
         <div className="field"><label>Asunto del correo</label><input value={config.email_subject_template || ''} onChange={(e) => set('email_subject_template', e.target.value)} /></div>
         <div className="field"><label>Cuerpo del correo</label><textarea style={{ minHeight: 130 }} value={config.email_body_template || ''} onChange={(e) => set('email_body_template', e.target.value)} /></div>
         <div className="field"><label>Mensaje de WhatsApp</label><textarea value={config.whatsapp_template || ''} onChange={(e) => set('whatsapp_template', e.target.value)} /></div>

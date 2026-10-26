@@ -5,6 +5,8 @@ import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { fmt, isValidEmail, isValidPhone10 } from '@/lib/calc'
 import { fillTemplate } from '@/lib/templates'
+import { resolveQuoteLink } from '@/lib/quoteLinkClient'
+import { createLinkCache, prefetchLink, linkForSend } from '@/lib/sendLink'
 import { triggerPdfDownload, resolveQuoteDownload } from '@/lib/pdf'
 import { contractQuoteFlow } from '@/lib/quoteContracting'
 import { getHistoricalLogoPath, removePaths } from '@/lib/quoteLogo'
@@ -35,6 +37,7 @@ export default function HistorialPage() {
   const [errorKind, setErrorKind] = useState('load') // load | refresh (la acción ya se completó)
   const [busy, setBusy] = useState(false) // hay una consulta en curso
   const trackerRef = useRef(createLoadTracker())
+  const linkCacheRef = useRef(createLinkCache()) // enlaces de {link} ya pedidos (ver lib/sendLink.js)
   const router = useRouter()
 
   // La carga es todo-o-nada (lib/historialLoad.js): o llegan quotes, app_config
@@ -148,7 +151,20 @@ export default function HistorialPage() {
   // vez, está el botón "PDF" a un lado. Abrimos el correo de inmediato, de
   // forma síncrona: los celulares solo permiten abrir apps externas
   // mientras dura el "gesto" del clic. ----------
-  function sendByEmail(rec) {
+  // Fase 6.7 / bloque 6 — {link}: enlace de aceptación en línea. Solo cotizaciones modernas, precontractuales y publicadas (en el resto
+  // se omite la línea de {link}); se prepara al abrir «Enviar a» (ver lib/sendLink.js). No se envía nada automáticamente.
+  function quoteTemplates() {
+    return [config.email_subject_template, config.email_body_template, config.whatsapp_template]
+  }
+  function prefetchSendLink(rec) {
+    prefetchLink({ cache: linkCacheRef.current, rec, templates: quoteTemplates(), resolver: resolveQuoteLink })
+  }
+  // Devuelve el enlace ('' si no corresponde), false si el usuario canceló, o una Promesa si aún no está listo.
+  function sendLinkFor(rec, templates) {
+    return linkForSend({ cache: linkCacheRef.current, rec, templates, resolver: resolveQuoteLink, confirm: (m) => window.confirm(m) })
+  }
+
+  async function sendByEmail(rec) {
     if (!isValidEmail(rec.client_email)) {
       alert('Este cliente no cuenta con un correo capturado (o no tiene un formato válido). Edita el registro para agregarlo antes de enviarlo por correo.')
       return
@@ -156,13 +172,16 @@ export default function HistorialPage() {
     const isReceipt = rec.status === 'recibo'
     const subjectTpl = isReceipt ? config.receipt_email_subject_template : config.email_subject_template
     const bodyTpl = isReceipt ? config.receipt_email_body_template : config.email_body_template
-    const subject = fillTemplate(subjectTpl, rec, config)
-    const body = fillTemplate(bodyTpl, rec, config)
+    let link = sendLinkFor(rec, [subjectTpl, bodyTpl])
+    if (link instanceof Promise) link = await link
+    if (link === false) return
+    const subject = fillTemplate(subjectTpl, rec, config, { link })
+    const body = fillTemplate(bodyTpl, rec, config, { link })
     window.location.href = `mailto:${rec.client_email}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
   }
 
   // ---------- WhatsApp: mismo principio, ya sin descarga automática. ----------
-  function sendByWhatsapp(rec) {
+  async function sendByWhatsapp(rec) {
     if (!isValidPhone10(rec.client_phone)) {
       alert('Este cliente no cuenta con un teléfono capturado a 10 dígitos. Edita el registro para agregarlo antes de enviarlo por WhatsApp.')
       return
@@ -170,7 +189,10 @@ export default function HistorialPage() {
     const digits = rec.client_phone.replace(/\D/g, '')
     const isReceipt = rec.status === 'recibo'
     const waTpl = isReceipt ? config.receipt_whatsapp_template : config.whatsapp_template
-    const text = fillTemplate(waTpl, rec, config)
+    let link = sendLinkFor(rec, [waTpl])
+    if (link instanceof Promise) link = await link
+    if (link === false) return
+    const text = fillTemplate(waTpl, rec, config, { link })
     window.open(`https://wa.me/52${digits}?text=${encodeURIComponent(text)}`, '_blank')
   }
 
@@ -365,7 +387,7 @@ export default function HistorialPage() {
         <div className="hist-actions">
           <button className="btn ghost small" onClick={() => downloadPdf(q)}>PDF</button>
 
-          <SendMenu onEmail={() => sendByEmail(q)} onWhatsapp={() => sendByWhatsapp(q)} />
+          <SendMenu onOpen={() => prefetchSendLink(q)} onEmail={() => sendByEmail(q)} onWhatsapp={() => sendByWhatsapp(q)} />
 
           {!isReceipt && canContractQuote(q) && (
             <button className="btn ghost small" onClick={() => router.push(`/cotizar?edit=${q.id}`)}>Editar</button>
