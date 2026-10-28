@@ -15,6 +15,8 @@ import { describeCleanupPending } from '@/lib/storageVerifiedRemove'
 import { canDeleteQuote, canContractQuote, canCancelContract } from '@/lib/quoteLifecycle'
 import { groupServicesByQuote, resolveQuoteServiceView, serviceActionLabel, serviceActionHref } from '@/lib/quoteServiceView'
 import SendMenu from '@/components/SendMenu'
+import LinkManager from '@/components/LinkManager'
+import { defaultRpc, detectLinkCapability, loadLinkStates, canManageLink, canRegenerateLink } from '@/lib/linkManagement'
 import {
   loadHistorialData, logHistorialFailures, createLoadTracker,
   HISTORIAL_LOAD_ERROR_MESSAGE, HISTORIAL_REFRESH_ERROR_MESSAGE,
@@ -37,6 +39,13 @@ export default function HistorialPage() {
   const [errorKind, setErrorKind] = useState('load') // load | refresh (la acción ya se completó)
   const [busy, setBusy] = useState(false) // hay una consulta en curso
   const trackerRef = useRef(createLoadTracker())
+  // P-TOKEN — «Gestionar enlace»: la capacidad (¿están habilitadas las operaciones en la base?) se detecta en cada carga con una lectura de solo lectura;
+  // si no están disponibles NO se ofrece nada. Los avisos por fila (enlace del PDF revocado / generación anterior / sin verificar) se leen solo para
+  // las cotizaciones precontractuales publicadas más recientes.
+  const [linkCap, setLinkCap] = useState({ state: 'unknown' })
+  const [linkStates, setLinkStates] = useState({})
+  const [managingId, setManagingId] = useState(null)
+  const linkSeqRef = useRef(0)
   const linkCacheRef = useRef(createLinkCache()) // enlaces de {link} ya pedidos (ver lib/sendLink.js)
   const router = useRouter()
 
@@ -72,6 +81,19 @@ export default function HistorialPage() {
   useEffect(() => { const t = trackerRef.current; t.start(); return () => t.stop() }, [])
   useEffect(() => { load() }, [])
   useEffect(() => { setPage(1) }, [searchText, searchDate, typeFilter])
+  useEffect(() => {
+    if (loadState !== 'ready') return undefined
+    let cancelled = false
+    const seq = ++linkSeqRef.current
+    ;(async () => {
+      const probe = quotes.find(canManageLink)
+      const cap = await detectLinkCapability(defaultRpc, probe ? probe.id : null)
+      if (cancelled || seq !== linkSeqRef.current) return
+      setLinkCap(cap)
+      if (cap.state !== 'enabled') setLinkStates({})
+    })()
+    return () => { cancelled = true }
+  }, [loadState, quotes])
 
   // Fase 6.7C-1.3 — todos los servicios de cada cotización (antes se guardaba
   // solo el último por quote_id). La decisión de etiquetas y acción vive en
@@ -119,6 +141,20 @@ export default function HistorialPage() {
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
   const pageItems = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  // Estado del enlace de cada cotización precontractual publicada de la PÁGINA VISIBLE (una lectura de solo lectura por fila). Mientras no se haya consultado una fila
+  // (otra página, contratadas/canceladas, o una consulta fallida) se muestra «ENLACE NO CONSULTADO»: la ausencia de aviso nunca se presenta como verificada.
+  const visibleLinkRows = pageItems.filter((q) => canManageLink(q) && canRegenerateLink(q))
+  const visibleLinkKey = visibleLinkRows.map((q) => q.id + ':' + q.content_revision).join(',')
+  useEffect(() => {
+    if (loadState !== 'ready' || linkCap.state !== 'enabled') return undefined
+    let cancelled = false
+    ;(async () => {
+      const states = await loadLinkStates(defaultRpc, visibleLinkRows)
+      if (!cancelled) setLinkStates((prev) => ({ ...prev, ...states }))
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadState, linkCap.state, visibleLinkKey, quotes])
 
   if (loadState === 'loading') return <div>Cargando…</div>
   if (loadState === 'error') {
@@ -381,6 +417,13 @@ export default function HistorialPage() {
             // en espacios angostos la segunda etiqueta baja a otra línea.
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
               {serviceView.badges.map((b) => <span key={b.text} className={`badge ${b.tone}`}>{b.text}</span>)}
+              {(() => {
+                if (linkCap.state !== 'enabled' || !canManageLink(q)) return null
+                const ls = linkStates[q.id]
+                if (!ls || !ls.ok) return <span className="badge neutral" title="El estado del enlace de su PDF no se ha consultado: ábrelo con «Gestionar enlace»." data-testid="link-badge">ENLACE NO CONSULTADO</span>
+                const m = { current: ['rec', 'ENLACE DEL PDF VIGENTE'], no_active: ['can', 'ENLACE DEL PDF REVOCADO'], outdated: ['cot', 'PDF CON ENLACE ANTERIOR'], unknown: ['neutral', 'ENLACE DEL PDF SIN VERIFICAR'] }[ls.state]
+                return m ? <span className={`badge ${m[0]}`} title={ls.text} data-testid="link-badge">{m[1]}</span> : null
+              })()}
             </div>
           )}
         </div>
@@ -388,6 +431,10 @@ export default function HistorialPage() {
           <button className="btn ghost small" onClick={() => downloadPdf(q)}>PDF</button>
 
           <SendMenu onOpen={() => prefetchSendLink(q)} onEmail={() => sendByEmail(q)} onWhatsapp={() => sendByWhatsapp(q)} />
+
+          {!isReceipt && !isChild && canManageLink(q) && (linkCap.state === 'enabled' || linkCap.state === 'error') && (
+            <button className="btn ghost small" onClick={() => setManagingId(q.id)}>Gestionar enlace</button>
+          )}
 
           {!isReceipt && canContractQuote(q) && (
             <button className="btn ghost small" onClick={() => router.push(`/cotizar?edit=${q.id}`)}>Editar</button>
@@ -472,6 +519,11 @@ export default function HistorialPage() {
           </div>
         </>
       )}
+
+      {(() => {
+        const mq = managingId ? quotes.find((x) => x.id === managingId) : null
+        return mq ? <LinkManager key={mq.id} rec={mq} onClose={() => setManagingId(null)} onChanged={() => load({ afterAction: true })} /> : null
+      })()}
     </div>
   )
 }
