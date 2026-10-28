@@ -16,7 +16,7 @@ import { canDeleteQuote, canContractQuote, canCancelContract } from '@/lib/quote
 import { groupServicesByQuote, resolveQuoteServiceView, serviceActionLabel, serviceActionHref } from '@/lib/quoteServiceView'
 import SendMenu from '@/components/SendMenu'
 import LinkManager from '@/components/LinkManager'
-import { defaultRpc, detectLinkCapability, loadLinkStates, canManageLink, canRegenerateLink } from '@/lib/linkManagement'
+import { defaultRpc, detectLinkCapability, loadLinkStates, canManageLink, canRegenerateLink, guardedDownload } from '@/lib/linkManagement'
 import {
   loadHistorialData, logHistorialFailures, createLoadTracker,
   HISTORIAL_LOAD_ERROR_MESSAGE, HISTORIAL_REFRESH_ERROR_MESSAGE,
@@ -174,10 +174,18 @@ export default function HistorialPage() {
     )
   }
 
+  // P-TOKEN: antes de descargar el PDF de una versión se consulta (solo lectura, AHORA) el vínculo de ESA versión; si su enlace está revocado, fue
+  // reemplazado, es desconocido o no se pudo consultar, se explica y se pide confirmación explícita. Nunca crea, regenera ni registra nada.
   async function downloadPdf(rec) {
-    const result = await resolveQuoteDownload(rec, config)
-    if (!result.ok) { alert(result.message); return }
-    triggerPdfDownload(result.blob, result.filename)
+    await guardedDownload({
+      rec, rpc: defaultRpc, confirm: (m) => window.confirm(m),
+      download: async (r) => {
+        const result = await resolveQuoteDownload(r, config)
+        if (!result.ok) { alert(result.message); return result }
+        triggerPdfDownload(result.blob, result.filename)
+        return result
+      },
+    })
   }
 
   // ---------- Correo: manual (adjuntar tú mismo). Ya NO descarga el PDF de
@@ -422,7 +430,7 @@ export default function HistorialPage() {
                 const ls = linkStates[q.id]
                 if (!ls || !ls.ok) return <span className="badge neutral" title="El estado del enlace de su PDF no se ha consultado: ábrelo con «Gestionar enlace»." data-testid="link-badge">ENLACE NO CONSULTADO</span>
                 const m = { current: ['rec', 'ENLACE DEL PDF VIGENTE'], no_active: ['can', 'ENLACE DEL PDF REVOCADO'], outdated: ['cot', 'PDF CON ENLACE ANTERIOR'], unknown: ['neutral', 'ENLACE DEL PDF SIN VERIFICAR'] }[ls.state]
-                return m ? <span className={`badge ${m[0]}`} title={ls.text} data-testid="link-badge">{m[1]}</span> : null
+                return m ? <span className={`badge ${m[0]}`} title={`${ls.text} (Consultado al cargar la lista; puede haber cambiado. Al descargar o abrir «Gestionar enlace» se consulta de nuevo.)`} data-testid="link-badge">{m[1]}</span> : null
               })()}
             </div>
           )}

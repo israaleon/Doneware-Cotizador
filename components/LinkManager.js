@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
   defaultRpc, getLinkStatus, revokeLink, regenerateLink, getRegenerateResult, newRequestId, classifyRevisionLink, domainMessage, canRegenerateLink, validateNote, validateReason, REASONS, NOTE_MAX,
+  describeLinkHeadline, canRevokeNow,
 } from '@/lib/linkManagement'
 
 const TONE = { ok: 'rec', warn: 'cot', bad: 'can', neutral: 'neutral' }
@@ -30,7 +31,7 @@ const ACTION_TEXT = {
 
 // Estado consultado → vista. «No habilitado» no muestra estado ni operaciones; un 42501 inesperado se muestra (no se oculta).
 function statusToView(s) {
-  if (s.ok) return { phase: 'ready', status: s }
+  if (s.ok) return { phase: 'ready', status: s, at: Date.now() }          // `at`: cuándo se consultó (el estado mostrado es ese instante, no una garantía futura)
   if (s.kind === 'not_enabled') return { phase: 'unavailable' }
   return { phase: 'error', text: s.kind === 'forbidden' ? `La base denegó el permiso de forma inesperada (código ${s.code || '42501'}). No se hizo ningún cambio.` : s.kind === 'domain' ? domainMessage(s.code) : 'No se pudo consultar el estado del enlace. Intenta de nuevo.' }
 }
@@ -139,6 +140,7 @@ export default function LinkManager({ rec, onClose, onChanged, rpc = defaultRpc 
 
   const st = view.phase === 'ready' ? view.status : null
   const activeGen = st ? st.active_generation : null
+  const headline = st ? describeLinkHeadline(rec, st) : null
   const currentCode = typeof rec.content_revision === 'string' ? rec.content_revision.slice(0, 8) : ''
   const precontractual = canRegenerateLink(rec)
   const labelState = rec.lifecycle_status === 'contratado' ? 'contratada (aceptada o marcada a mano)' : rec.lifecycle_status === 'cancelado' ? 'cancelada' : 'precontractual'
@@ -168,10 +170,9 @@ export default function LinkManager({ rec, onClose, onChanged, rpc = defaultRpc 
         {st && (
           <>
             <div style={{ marginBottom: 12 }} data-testid="lm-active">
-              {activeGen
-                ? <span className="badge rec">ENLACE ACTIVO · GENERACIÓN {activeGen}</span>
-                : <span className="badge can">SIN ENLACE ACTIVO</span>}
-              <span className="muted" style={{ marginLeft: 8 }}>{activeGen ? 'Es el que usan «Enviar a» y las nuevas publicaciones.' : 'Está revocado o aún no se ha creado; las nuevas publicaciones no pueden continuar hasta regenerarlo.'}</span>
+              <span className={`badge ${TONE[headline.tone]}`} data-testid="lm-headline" data-kind={headline.kind}>{headline.label}</span>
+              <span className="muted" style={{ marginLeft: 8 }}>{headline.text}</span>
+              <div className="muted" style={{ fontSize: 11.5, marginTop: 4 }} data-testid="lm-queried">Consultado a las {new Date(view.at).toLocaleTimeString('es-MX')}; si alguien cambia el enlace después, este panel no se actualiza solo.</div>
             </div>
 
             <div style={{ marginBottom: 12 }}>
@@ -193,10 +194,12 @@ export default function LinkManager({ rec, onClose, onChanged, rpc = defaultRpc 
 
             {!action && (
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                <button className="btn ghost small" disabled={busy || !activeGen} onClick={() => begin('revoke')} title={activeGen ? '' : 'No hay un enlace activo que revocar'}>{ACTION_TEXT.revoke.start}</button>
+                {canRevokeNow(st)
+                  ? <button className="btn ghost small" disabled={busy} onClick={() => begin('revoke')}>{ACTION_TEXT.revoke.start}</button>
+                  : <span className="muted" data-testid="lm-no-revoke">No hay un enlace activo que revocar.</span>}
                 {precontractual
                   ? <button className="btn teal small" disabled={busy} onClick={() => begin('regenerate')}>{ACTION_TEXT.regenerate.start}</button>
-                  : <span className="muted">Regenerar no está disponible: la cotización ya no es precontractual (solo puede revocarse).</span>}
+                  : <span className="muted" data-testid="lm-no-regen">Regenerar no está disponible: la cotización ya no es precontractual{canRevokeNow(st) ? ' (solo puede revocarse)' : ''}.</span>}
               </div>
             )}
 
