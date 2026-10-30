@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { fmt } from '@/lib/calc'
 import { triggerPdfDownload, resolveQuoteDownload } from '@/lib/pdf'
+import { defaultRpc, guardedDownload } from '@/lib/linkManagement'
 import { SERVICE_STATUS_LABEL, SERVICE_STATUS_BADGE } from '@/lib/serviceStatus'
 import {
   kindLabel, hasQuoteHistory, deactivateClient, reactivateClient, deleteClientPhysically,
@@ -200,10 +201,18 @@ export default function ClienteDetallePage() {
   // Fase 6.5 — mismas reglas de descarga que Historial (lib/pdf.js
   // centraliza la decisión persistido-vs-regenerado para que un mismo PDF
   // nunca se comporte distinto según desde qué pantalla se descargue).
+  // P-TOKEN: igual que en Historial, antes de descargar se consulta (solo lectura, AHORA) el vínculo de la versión exacta y, si su enlace está
+  // revocado, reemplazado, desconocido o no se pudo consultar, se explica y se pide confirmación (reglas y textos en lib/linkManagement.js).
   async function downloadPdf(rec) {
-    const result = await resolveQuoteDownload(rec, config)
-    if (!result.ok) { alert(result.message); return }
-    triggerPdfDownload(result.blob, result.filename)
+    await guardedDownload({
+      rec, rpc: defaultRpc, confirm: (m) => window.confirm(m),
+      download: async (r) => {
+        const result = await resolveQuoteDownload(r, config)
+        if (!result.ok) { alert(result.message); return result }
+        triggerPdfDownload(result.blob, result.filename)
+        return result
+      },
+    })
   }
 
   return (
