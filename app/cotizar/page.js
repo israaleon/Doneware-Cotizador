@@ -1,6 +1,6 @@
 // app/cotizar/page.js
 'use client'
-import { useEffect, useMemo, useState, Suspense } from 'react'
+import { useEffect, useMemo, useRef, useState, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { fmt, calcTotals, validateQuote } from '@/lib/calc'
@@ -17,6 +17,7 @@ import {
   withRecalculatedSubtotal, normalizeItem, buildClientSnapshot, buildCompanySnapshot,
 } from '@/lib/quoteSnapshot'
 import { publishQuoteRevision } from '@/lib/quotePublication'
+import { initialServiceAddress, resolveServiceAddress as resolveServiceAddressFor, serviceAddressAfterClientChange } from '@/lib/serviceAddress'
 import { canEditQuote } from '@/lib/quoteLifecycle'
 
 const QUOTE_TYPES = [
@@ -101,9 +102,35 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
   const [selectedContactId, setSelectedContactId] = useState(null)
 
   // ---------- Dirección de servicio ----------
-  const [serviceAddressOrigin, setServiceAddressOrigin] = useState('selected_client_address')
-  const [serviceOtherAddressId, setServiceOtherAddressId] = useState(null)
-  const [serviceManualAddress, setServiceManualAddress] = useState('')
+  // Al EDITAR, se inicializa desde la dirección ya guardada (lib/serviceAddress.js): sin eso, un guardado sin tocarla la sustituía por la del cliente.
+  // Si la persona ya eligió algo, la carga asíncrona de las direcciones del cliente no lo pisa (serviceAddressTouchedRef).
+  const serviceAddressTouchedRef = useRef(false)
+  // Vigencia de las cargas de cliente: cada selección, limpieza o cambio de modo de cliente invalida las respuestas (direcciones y contactos) que aún no llegaron.
+  const clientRequestRef = useRef(0)
+  const [serviceAddressOrigin, setServiceAddressOriginRaw] = useState('selected_client_address')
+  const [serviceOtherAddressId, setServiceOtherAddressIdRaw] = useState(null)
+  const [serviceManualAddress, setServiceManualAddressRaw] = useState('')
+  // Dirección pendiente de confirmación tras cambiar de cliente al editar: { kind: 'previous_client_address' | 'unknown_origin', text } (ver serviceAddressAfterClientChange).
+  const [serviceAddressPending, setServiceAddressPending] = useState(null)
+  // Hay una carga de cliente en curso: no se permite guardar hasta que termine, para que el resultado no dependa del momento en que llegan las direcciones.
+  const [clientLoading, setClientLoading] = useState(false)
+  const setServiceAddressOrigin = (v) => { serviceAddressTouchedRef.current = true; setServiceAddressPending(null); setServiceAddressOriginRaw(v) }
+  const setServiceOtherAddressId = (v) => { serviceAddressTouchedRef.current = true; setServiceAddressPending(null); setServiceOtherAddressIdRaw(v) }
+  const setServiceManualAddress = (v) => { serviceAddressTouchedRef.current = true; setServiceAddressPending(null); setServiceManualAddressRaw(v) }
+  function applyInitialServiceAddress(init) {
+    setServiceAddressOriginRaw(init.origin)
+    setServiceOtherAddressIdRaw(init.otherAddressId)
+    setServiceManualAddressRaw(init.manualAddress)
+    setServiceAddressPending(init.pending || null)
+  }
+  // Al CAMBIAR de cliente al editar (elegir otro, limpiar la selección o cambiar el modo), la dirección de servicio sigue el origen persistido de la cotización;
+  // no depende de lo que haya cargado. Si la persona ya eligió la dirección de servicio a mano, no se toca.
+  function serviceClientChanged(newClientId) {
+    if (!editingRec || serviceAddressTouchedRef.current) return null
+    const next = serviceAddressAfterClientChange({ rec: editingRec, newClientId, clientAddressText: editingRec.client_address || '' })
+    if (next) applyInitialServiceAddress(next)
+    return next
+  }
 
   // ---------- Catálogo (reutiliza lib/catalog.js de Fase 3) ----------
   const [userId, setUserId] = useState(null)
@@ -122,17 +149,19 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
   useEffect(() => {
     let active = true
     async function selectExistingClient(client, preferredAddressId, preferredContactId) {
+      const token = ++clientRequestRef.current
       setSelectedClientId(client.id)
       setSelectedClientRow(client)
-      const [addrs, contacts] = await Promise.all([fetchAddresses(client.id), fetchContacts(client.id)])
-      if (!active) return { addr: null, contact: null }
+      let addrs = [], contacts = []
+      try { [addrs, contacts] = await Promise.all([fetchAddresses(client.id), fetchContacts(client.id)]) } catch { /* fallo de red: se sigue sin direcciones ni contactos */ }
+      if (!active || clientRequestRef.current !== token) return { addr: null, contact: null, addrs: null, token }
       setClientAddresses(addrs)
       setClientContacts(contacts)
       const addr = (preferredAddressId && addrs.find((a) => a.id === preferredAddressId)) || addrs.find((a) => a.is_primary) || addrs[0] || null
       const contact = (preferredContactId && contacts.find((c) => c.id === preferredContactId)) || contacts.find((c) => c.is_primary) || contacts[0] || null
       setSelectedAddressId(addr ? addr.id : null)
       setSelectedContactId(contact ? contact.id : null)
-      return { addr, contact }
+      return { addr, contact, addrs, token }
     }
 
     async function load() {
@@ -151,19 +180,34 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
           requiresServiceOverridden: true, // respeta el valor guardado; no se recalcula solo por abrir a editar
           requiresServiceManual: editingRec.requires_service ?? computeRequiresServiceSuggestion(editingRec.quote_type, normalizedItems),
         })
+        // Dirección de servicio guardada: se conserva desde el primer instante (como manual si aún no se pueden comparar las direcciones del cliente)...
+        const clientAddressText = editingRec.client_address || ''
+        applyInitialServiceAddress(initialServiceAddress({ rec: editingRec, addresses: [], selectedAddressId: null, clientAddressText }))
         if (editingRec.client_id) {
-          const { data: c } = await supabase.from('clients').select('*').eq('id', editingRec.client_id).single()
-          if (active && c) {
-            setClientMode('existente')
-            await selectExistingClient(
-              c,
-              editingRec.client_snapshot?.selected_address?.id ?? null,
-              editingRec.client_snapshot?.selected_contact?.id ?? null,
-            )
-            // OJO: draft.client.* ya viene de las columnas planas del registro
-            // (arriba) y NO se sobreescribe aquí — es lo que realmente se
-            // guardó; los selects de dirección/contacto solo sirven para que,
-            // si el usuario los cambia, el nuevo snapshot lo refleje.
+          const loadToken = clientRequestRef.current
+          let ownedToken = loadToken // solicitud vigente de esta carga: al terminar (bien o mal) se libera «Cargando cliente…» solo si sigue siendo la vigente
+          setClientLoading(true)
+          try {
+            const { data: c } = await supabase.from('clients').select('*').eq('id', editingRec.client_id).single()
+            if (active && c && clientRequestRef.current === loadToken) {
+              setClientMode('existente')
+              const { addr, addrs, token } = await selectExistingClient(
+                c,
+                editingRec.client_snapshot?.selected_address?.id ?? null,
+                editingRec.client_snapshot?.selected_contact?.id ?? null,
+              )
+              ownedToken = token
+              // ...y se afina cuando ya se conocen las direcciones del cliente, solo si la persona todavía no tocó la dirección de servicio.
+              if (active && clientRequestRef.current === token && !serviceAddressTouchedRef.current && addrs) {
+                applyInitialServiceAddress(initialServiceAddress({ rec: editingRec, addresses: addrs, selectedAddressId: addr ? addr.id : null, clientAddressText }))
+              }
+              // OJO: draft.client.* ya viene de las columnas planas del registro
+              // (arriba) y NO se sobreescribe aquí — es lo que realmente se
+              // guardó; los selects de dirección/contacto solo sirven para que,
+              // si el usuario los cambia, el nuevo snapshot lo refleje.
+            }
+          } finally {
+            if (active && clientRequestRef.current === ownedToken) setClientLoading(false)
           }
         }
         return
@@ -244,7 +288,13 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
 
   // ---------- Cliente ----------
   function updateClient(field, value) {
-    if (field === 'name') setSelectedClientId(null)
+    if (field === 'name') {
+      // Editar el nombre desvincula al cliente: se invalidan las cargas en curso y se quitan las opciones del cliente anterior (la dirección manual y los avisos se conservan).
+      clientRequestRef.current++; setClientLoading(false); setSelectedClientId(null)
+      setSelectedClientRow(null) // la fila del cliente anterior alimenta el snapshot: no debe quedar asociada a un cliente desvinculado
+      setClientAddresses([]); setClientContacts([]); setSelectedAddressId(null); setSelectedContactId(null)
+      serviceClientChanged(null)
+    }
     setDraft((d) => ({ ...d, client: { ...d.client, [field]: value } }))
   }
   async function searchClientSuggestions(text) {
@@ -253,26 +303,42 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
   }
   async function applyClientSuggestion(c) {
     setClientSuggestions([])
+    const token = ++clientRequestRef.current
+    setClientLoading(true)
     setSelectedClientId(c.id)
     setSelectedClientRow(c)
-    const [addrs, contacts] = await Promise.all([fetchAddresses(c.id), fetchContacts(c.id)])
-    setClientAddresses(addrs)
-    setClientContacts(contacts)
-    const addr = addrs.find((a) => a.is_primary) || addrs[0] || null
-    const contact = contacts.find((x) => x.is_primary) || contacts[0] || null
-    setSelectedAddressId(addr ? addr.id : null)
-    setSelectedContactId(contact ? contact.id : null)
-    setDraft((d) => ({
-      ...d,
-      client: {
-        name: c.name || '',
-        phone: contact?.phone || c.phone || '',
-        email: contact?.email || c.email || '',
-        address: addr?.address || c.address || '',
-      },
-    }))
+    const changed = serviceClientChanged(c.id) // al instante: no depende de cuándo lleguen las direcciones
+    try {
+      let addrs = [], contacts = []
+      try { [addrs, contacts] = await Promise.all([fetchAddresses(c.id), fetchContacts(c.id)]) } catch { /* fallo de red: se aplica el cliente sin direcciones ni contactos */ }
+      if (clientRequestRef.current !== token) return // otra selección, limpieza o cambio de modo ocurrió mientras tanto
+      setClientAddresses(addrs)
+      setClientContacts(contacts)
+      const addr = addrs.find((a) => a.is_primary) || addrs[0] || null
+      const contact = contacts.find((x) => x.is_primary) || contacts[0] || null
+      setSelectedAddressId(addr ? addr.id : null)
+      setSelectedContactId(contact ? contact.id : null)
+      // Si se volvió al cliente con el que se abrió la edición, se recupera el estado de apertura ya con sus direcciones.
+      if (changed && changed.restored && !serviceAddressTouchedRef.current) {
+        applyInitialServiceAddress(initialServiceAddress({ rec: editingRec, addresses: addrs, selectedAddressId: addr ? addr.id : null, clientAddressText: editingRec.client_address || '' }))
+      }
+      setDraft((d) => ({
+        ...d,
+        client: {
+          name: c.name || '',
+          phone: contact?.phone || c.phone || '',
+          email: contact?.email || c.email || '',
+          address: addr?.address || c.address || '',
+        },
+      }))
+    } finally {
+      if (clientRequestRef.current === token) setClientLoading(false) // éxito o error de la solicitud vigente; una obsoleta no toca este estado
+    }
   }
   function switchClientMode(mode) {
+    clientRequestRef.current++
+    setClientLoading(false)
+    serviceClientChanged(null)
     setClientMode(mode)
     setSelectedClientId(null)
     setSelectedClientRow(null)
@@ -347,15 +413,10 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
 
   // ---------- Dirección de servicio ----------
   function resolveServiceAddress() {
-    if (serviceAddressOrigin === 'manual') {
-      return { origin: 'manual', addressId: null, address: serviceManualAddress }
-    }
-    if (serviceAddressOrigin === 'other_client_address') {
-      const addr = clientAddresses.find((a) => a.id === serviceOtherAddressId)
-      return { origin: 'other_client_address', addressId: addr ? addr.id : null, address: addr ? addr.address : '' }
-    }
-    const addr = clientAddresses.find((a) => a.id === selectedAddressId)
-    return { origin: 'selected_client_address', addressId: addr ? addr.id : null, address: addr ? addr.address : draft.client.address }
+    return resolveServiceAddressFor({
+      origin: serviceAddressOrigin, otherAddressId: serviceOtherAddressId, manualAddress: serviceManualAddress,
+      addresses: clientAddresses, selectedAddressId, draftClientAddress: draft.client.address,
+    })
   }
 
   async function handleSubmit() {
@@ -363,7 +424,8 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
     if (!editingRec && !draft.quoteType) errs.quoteType = 'Elige el tipo de cotización.'
     if (requiresService) {
       const resolved = resolveServiceAddress()
-      if (!resolved.address || !resolved.address.trim()) errs.serviceAddress = 'Indica la dirección donde se realizará el servicio.'
+      if (serviceAddressPending) errs.serviceAddress = 'Confirma la dirección de servicio: la guardada pertenecía al cliente anterior o no se sabe de quién era (ver el aviso).'
+      else if (!resolved.address || !resolved.address.trim()) errs.serviceAddress = 'Indica la dirección donde se realizará el servicio.'
     }
     const blocked = hasErrors || !!errs.quoteType || !!errs.serviceAddress
     setErrors(errs)
@@ -723,6 +785,20 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
                 {serviceAddressOrigin === 'manual' && (
                   <input value={serviceManualAddress} onChange={(e) => setServiceManualAddress(e.target.value)} placeholder="Dirección donde se realizará el servicio" />
                 )}
+                {serviceAddressPending && (
+                  <div style={{ border: '1px solid var(--warn, #c28a00)', borderRadius: 6, padding: 8, marginBottom: 6, fontSize: 12.5 }}>
+                    {serviceAddressPending.kind === 'previous_client_address' ? (
+                      <>La dirección «{serviceAddressPending.text}» era una dirección registrada del cliente anterior y no se conserva como confirmada. Elige una dirección válida del cliente nuevo, usa la del cliente o escribe una manual.</>
+                    ) : (
+                      <>
+                        Esta cotización guardó «{serviceAddressPending.text}» sin registrar si era la dirección del cliente, otra registrada o una manual. Al cambiar de cliente no se puede asumir de quién es: confírmala como dirección manual o elige otra opción.{' '}
+                        <button type="button" className="btn ghost small" onClick={() => { const t = serviceAddressPending.text; setServiceAddressOrigin('manual'); setServiceManualAddress(t) }}>
+                          Conservar como dirección manual
+                        </button>
+                      </>
+                    )}
+                  </div>
+                )}
                 {errors.serviceAddress && <div className="fielderr">{errors.serviceAddress}</div>}
               </div>
             )}
@@ -806,8 +882,8 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
             </div>
           </div>
           <div className="actionsbar">
-            <button className="btn teal" disabled={saving} onClick={handleSubmit}>
-              {saving ? 'Guardando…' : editingRec ? 'Guardar cambios' : 'Generar cotización PDF'}
+            <button className="btn teal" disabled={saving || clientLoading} onClick={handleSubmit}>
+              {saving ? 'Guardando…' : clientLoading ? 'Cargando cliente…' : editingRec ? 'Guardar cambios' : 'Generar cotización PDF'}
             </button>
             <button className="btn ghost" onClick={() => router.push('/historial')}>Cancelar</button>
           </div>
