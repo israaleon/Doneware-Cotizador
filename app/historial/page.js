@@ -160,7 +160,7 @@ export default function HistorialPage() {
   if (loadState === 'error') {
     return (
       <div>
-        <h2 className="pagetitle">Historial</h2>
+        <h2 className="pagetitle">Mis cotizaciones</h2>
         <div className="pagesub">Todas tus cotizaciones y recibos.</div>
         <div className="panel">
           <div className="muted" style={{ padding: 30, textAlign: 'center' }}>
@@ -473,7 +473,7 @@ export default function HistorialPage() {
 
   return (
     <div>
-      <h2 className="pagetitle">Historial</h2>
+      <h2 className="pagetitle">Mis cotizaciones</h2>
       <div className="pagesub">Todas tus cotizaciones y recibos.</div>
 
       <div className="panel" style={{ marginBottom: 16 }}>

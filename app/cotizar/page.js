@@ -19,6 +19,7 @@ import {
 import { publishQuoteRevision } from '@/lib/quotePublication'
 import { initialServiceAddress, resolveServiceAddress as resolveServiceAddressFor, serviceAddressAfterClientChange } from '@/lib/serviceAddress'
 import { canEditQuote } from '@/lib/quoteLifecycle'
+import { registerUnsavedGuard } from '@/lib/unsavedGuard'
 
 const QUOTE_TYPES = [
   { value: 'instalacion', label: '🔧 Instalación' },
@@ -107,6 +108,10 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
   const serviceAddressTouchedRef = useRef(false)
   // Vigencia de las cargas de cliente: cada selección, limpieza o cambio de modo de cliente invalida las respuestas (direcciones y contactos) que aún no llegaron.
   const clientRequestRef = useRef(0)
+  // N2 — aviso de cambios sin guardar (lib/unsavedGuard.js): borrador con el que quedó listo el formulario (lo fija la carga, no la persona) y el último estado visto.
+  const baselineRef = useRef(null)
+  const latestRef = useRef({ draft: null, staged: {} })
+  const setLoadedDraft = (d) => { baselineRef.current = JSON.stringify(d); setDraft(d) }
   const [serviceAddressOrigin, setServiceAddressOriginRaw] = useState('selected_client_address')
   const [serviceOtherAddressId, setServiceOtherAddressIdRaw] = useState(null)
   const [serviceManualAddress, setServiceManualAddressRaw] = useState('')
@@ -167,7 +172,7 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
     async function load() {
       if (editingRec) {
         const normalizedItems = (editingRec.items || []).map(normalizeItem)
-        setDraft({
+        setLoadedDraft({
           quoteType: editingRec.quote_type || '',
           client: { name: editingRec.client_name || '', phone: editingRec.client_phone || '', email: editingRec.client_email || '', address: editingRec.client_address || '' },
           items: normalizedItems,
@@ -217,7 +222,7 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
         const { data: client } = await supabase.from('clients').select('*').eq('id', clientIdParam).single()
         if (client && active) {
           const { addr, contact } = await selectExistingClient(client, null, null)
-          setDraft({
+          setLoadedDraft({
             ...newDraft(config),
             client: {
               name: client.name || '',
@@ -231,7 +236,7 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
         }
       }
 
-      setDraft(newDraft(config))
+      setLoadedDraft(newDraft(config))
       setPreviewFolio(await nextFolio('cotizacion'))
     }
     load()
@@ -273,6 +278,19 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
   }, [catalogItems, debouncedText, onlyFavorites, favoriteIds, sortMostUsed, usage])
 
   const categories = useMemo(() => distinctCategories(catalogItems), [catalogItems])
+
+  // N2 — cambios sin guardar: se compara el borrador con el que fijó la carga (setLoadedDraft) y se cuentan la dirección de servicio tocada
+  // a mano y el catálogo con cantidades puestas pero sin agregar. El marco (menú, barras, cerrar sesión) pregunta antes de descartarlos
+  // (lib/unsavedGuard.js). No guarda nada: sin borradores entre pantallas.
+  useEffect(() => { latestRef.current = { draft, staged: catalogStaged } })
+  useEffect(() => {
+    registerUnsavedGuard(() => {
+      const { draft: d, staged } = latestRef.current
+      if (!d || baselineRef.current === null) return false
+      return JSON.stringify(d) !== baselineRef.current || serviceAddressTouchedRef.current || Object.keys(staged || {}).length > 0
+    })
+    return () => registerUnsavedGuard(null)
+  }, [])
 
   if (!draft || !config) return <div>Cargando…</div>
 
@@ -925,6 +943,11 @@ function CotizarInner() {
 
   if (!ready || !config) return <div>Cargando…</div>
 
+  // N2 (menú Donnie): «Cotizador» / «Nueva cotización» desde una edición cambia la URL a /cotizar sin desmontar esta pantalla; sin esto el estado `editingRec`
+  // quedaba pegado y el formulario seguía mostrando (y guardando sobre) la cotización editada. Sin ?edit= no hay cotización en edición, y el formulario
+  // se monta de nuevo (key) para empezar limpio.
+  const rec = editId ? editingRec : null
+
   // Fase 6.6B — después de contratar, la cotización (y su recibo) quedan
   // congelados; cancelar una contratación tampoco la vuelve editable. La
   // única cotización editable es la que sigue en lifecycle_status='cotizacion'.
@@ -932,19 +955,19 @@ function CotizarInner() {
   // formulario — antes esto se resolvía con LegacyContractedEditForm
   // (retirado, ver arriba), que sí permitía escribir directamente sobre una
   // contratada y su recibo.
-  if (editingRec && !canEditQuote(editingRec)) {
+  if (rec && !canEditQuote(rec)) {
     return (
       <div>
         <h2 className="pagetitle">Cotización no editable</h2>
         <div className="pagesub">
-          <strong>{editingRec.folio}</strong> ya no se puede editar: está {editingRec.lifecycle_status === 'cancelado' ? 'cancelada' : 'contratada'}.
-          {editingRec.lifecycle_status === 'contratado' && ' Para revertir la contratación, usa "Cancelar contratación" desde Historial.'}
+          <strong>{rec.folio}</strong> ya no se puede editar: está {rec.lifecycle_status === 'cancelado' ? 'cancelada' : 'contratada'}.
+          {rec.lifecycle_status === 'contratado' && ' Para revertir la contratación, usa "Cancelar contratación" desde Historial.'}
         </div>
         <button className="btn ghost" onClick={() => router.push('/historial')}>Volver a Historial</button>
       </div>
     )
   }
-  return <NewQuoteForm editingRec={editingRec} config={config} clientIdParam={clientIdParam} router={router} />
+  return <NewQuoteForm key={editId || 'nueva'} editingRec={rec} config={config} clientIdParam={clientIdParam} router={router} />
 }
 
 export default function CotizarPage() {

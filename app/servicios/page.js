@@ -50,7 +50,7 @@ function ServiciosInner() {
   if (view.kind === 'invalid' || view.kind === 'error') {
     return (
       <div>
-        <h2 className="pagetitle">Servicios</h2>
+        <h2 className="pagetitle">Agenda de servicios</h2>
         <div className="pagesub">Servicios de la cotización seleccionada.</div>
         <div className="panel">
           <div className="muted" style={{ padding: 30, textAlign: 'center' }}>
@@ -66,7 +66,7 @@ function ServiciosInner() {
 
   return (
     <div>
-      <h2 className="pagetitle">Servicios</h2>
+      <h2 className="pagetitle">Agenda de servicios</h2>
       <div className="pagesub">
         {isFiltered
           ? `Servicios de la cotización seleccionada${quoteFolio ? ` (${quoteFolio})` : ''}.`

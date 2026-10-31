@@ -13,8 +13,9 @@ import { useEffect, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { isPublicQuotePath } from '@/lib/publicRoutes'
+import { IdentityProvider } from '@/components/DonnieIdentity'
 
-export default function AuthGate({ sidebar, children }) {
+export default function AuthGate({ sidebar, topbar, children }) {
   const [checking, setChecking] = useState(true)
   const router = useRouter()
   const pathname = usePathname()
@@ -39,12 +40,17 @@ export default function AuthGate({ sidebar, children }) {
 
   if (isPublic) return children
 
-  // Marco interno: idéntico al que antes vivía en app/layout.js.
+  // Marco interno (N2, ronda Donnie): menú lateral + barra superior + contenido. La identidad de la empresa se carga una sola vez y solo con sesión (no en /login).
   const shell = (
-    <div className="app-shell">
-      {sidebar}
-      <div className="main">{children}</div>
-    </div>
+    <IdentityProvider key={pathname === '/login' ? 'login' : 'app'} enabled={pathname !== '/login'}>
+      <div className="dn-shell">
+        {sidebar}
+        <div className="main">
+          {topbar}
+          {children}
+        </div>
+      </div>
+    </IdentityProvider>
   )
   if (pathname === '/login') return shell
   if (checking) return <div style={{ padding: 40 }}>Cargando…</div>

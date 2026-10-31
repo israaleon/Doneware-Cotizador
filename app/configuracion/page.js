@@ -135,7 +135,7 @@ export default function ConfiguracionPage() {
 
   return (
     <div>
-      <h2 className="pagetitle">Configuración</h2>
+      <h2 className="pagetitle">Ajustes</h2>
       <div className="pagesub">Estos datos aparecen en tus cotizaciones, recibos y mensajes.</div>
 
       <Suspense fallback={null}><GoogleConnectPanel /></Suspense>

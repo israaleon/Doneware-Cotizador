@@ -18,13 +18,13 @@ export default function LoginPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     setLoading(false)
     if (error) { setError('Correo o contraseña incorrectos.'); return }
-    router.replace('/cotizar')
+    router.replace('/')
   }
 
   return (
     <div className="login-wrap">
       <form className="login-box" onSubmit={handleSubmit}>
-        <h2 className="pagetitle" style={{ marginBottom: 4 }}>Cotizador</h2>
+        <h2 className="pagetitle" style={{ marginBottom: 4 }}>Donnie</h2>
         <div className="pagesub">Inicia sesión con tu cuenta de Supabase.</div>
         <div className="field">
           <label>Correo</label>
