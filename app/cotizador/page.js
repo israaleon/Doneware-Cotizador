@@ -1,6 +1,6 @@
 // app/cotizador/page.js — entrada del Cotizador (N2, ronda Donnie): las dos opciones del módulo.
-// «Nueva cotización» abre el formulario de siempre (/cotizar) y «Mis cotizaciones» la lista de siempre (/historial); no se crea ni cambia ninguna regla.
-// La selección Servicio / Instalación / Venta NO está aquí: tendrá su propio alcance.
+// «Nueva cotización» abre la selección del tipo de cotización (/cotizador/nueva, N3-A) y de ahí el formulario de siempre (/cotizar); «Mis cotizaciones» abre la lista de siempre (/historial).
+// No se crea ni cambia ninguna regla.
 import Link from 'next/link'
 import DonnieIcon from '@/components/DonnieIcon'
 
@@ -14,7 +14,7 @@ export default function CotizadorEntrada() {
         <p>Elige cómo quieres empezar.</p>
       </div>
       <div className="dn-entry-grid">
-        <Link href="/cotizar" className="dn-entry-card dn-entry-primary">
+        <Link href="/cotizador/nueva" className="dn-entry-card dn-entry-primary">
           <span className="dn-entry-ico"><DonnieIcon name="quote" /></span>
           <span className="dn-entry-tx">
             <b>Nueva cotización</b>

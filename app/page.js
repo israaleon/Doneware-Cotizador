@@ -119,7 +119,7 @@ export default function InicioPage() {
         {data && isInicioEmpty(data) && (
           <div className="dn-state dn-state-empty">
             <div><b>Aún no hay cotizaciones</b><span>Cuando crees la primera aparecerá aquí.</span></div>
-            <Link href="/cotizar" className="dn-ghost-btn"><DonnieIcon name="plus" />Nueva cotización</Link>
+            <Link href="/cotizador/nueva" className="dn-ghost-btn"><DonnieIcon name="plus" />Nueva cotización</Link>
           </div>
         )}
         {data && !isInicioEmpty(data) && (

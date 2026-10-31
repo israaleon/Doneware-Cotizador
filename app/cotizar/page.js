@@ -20,6 +20,7 @@ import { publishQuoteRevision } from '@/lib/quotePublication'
 import { initialServiceAddress, resolveServiceAddress as resolveServiceAddressFor, serviceAddressAfterClientChange } from '@/lib/serviceAddress'
 import { canEditQuote } from '@/lib/quoteLifecycle'
 import { registerUnsavedGuard } from '@/lib/unsavedGuard'
+import { parseQuoteTypeParam } from '@/lib/quoteTypes'
 
 const QUOTE_TYPES = [
   { value: 'instalacion', label: '🔧 Instalación' },
@@ -56,9 +57,9 @@ function missingOptionalFields(draft) {
 // Formulario nuevo de Fase 5 — cotizaciones nuevas y ediciones de
 // cotizaciones NO contratadas (legacy o ya creadas con este modelo).
 // ============================================================================
-function newDraft(config) {
+function newDraft(config, initialType = '') {
   return {
-    quoteType: '',
+    quoteType: initialType, // N3-A: la pantalla de selección abre el formulario con ?tipo=; sin él (o en ediciones) no cambia nada
     client: { name: '', phone: '', email: '', address: '' },
     items: [],
     discountType: 'percent',
@@ -81,7 +82,7 @@ function newDraft(config) {
 // existentes, exactamente lo que una revisión inmutable no puede hacer.
 // ============================================================================
 
-function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
+function NewQuoteForm({ editingRec, config, clientIdParam, initialType, router }) {
   const [draft, setDraft] = useState(null)
   const [errors, setErrors] = useState({})
   const [saving, setSaving] = useState(false)
@@ -223,7 +224,7 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
         if (client && active) {
           const { addr, contact } = await selectExistingClient(client, null, null)
           setLoadedDraft({
-            ...newDraft(config),
+            ...newDraft(config, initialType),
             client: {
               name: client.name || '',
               phone: contact?.phone || client.phone || '',
@@ -236,7 +237,7 @@ function NewQuoteForm({ editingRec, config, clientIdParam, router }) {
         }
       }
 
-      setLoadedDraft(newDraft(config))
+      setLoadedDraft(newDraft(config, initialType))
       setPreviewFolio(await nextFolio('cotizacion'))
     }
     load()
@@ -920,6 +921,7 @@ function CotizarInner() {
   const params = useSearchParams()
   const editId = params.get('edit')
   const clientIdParam = params.get('client')
+  const tipoParam = parseQuoteTypeParam(params.get('tipo')) // N3-A: solo valores existentes; se ignora en ediciones
 
   const [config, setConfig] = useState(null)
   const [editingRec, setEditingRec] = useState(null)
@@ -967,7 +969,7 @@ function CotizarInner() {
       </div>
     )
   }
-  return <NewQuoteForm key={editId || 'nueva'} editingRec={rec} config={config} clientIdParam={clientIdParam} router={router} />
+  return <NewQuoteForm key={editId || 'nueva'} editingRec={rec} config={config} clientIdParam={clientIdParam} initialType={rec ? '' : tipoParam} router={router} />
 }
 
 export default function CotizarPage() {
