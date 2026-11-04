@@ -247,3 +247,198 @@
   .dn-entry-head h1{ font-size:25px; }
 }
 @media (prefers-reduced-motion:reduce){ .dn-shell *{ transition:none !important; animation:none !important; } }
+
+/* ======================================================================================================================================
+   N3-B — «Mis cotizaciones» (/historial): filtros con chips, filas con tres estados separados, una acción principal + «⋯», paginación.
+   Prefijo dn-h-* (página) y dn-amenu* (menú «⋯», que se pinta en document.body: por eso no usa las variables de .dn-shell). */
+.dn-hist{ max-width:1320px; --h-green-soft:#DDF4EA; --h-green-ink:#0B6B4D; --h-red-soft:#FDE7E4; --h-red-ink:#A61F14; }
+.dn-h-head{ display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin:2px 2px 18px; }
+.dn-h-head h1{ font-size:30px; letter-spacing:-.8px; margin:0; }
+.dn-h-head p{ margin:4px 0 0; color:var(--dn-muted); }
+.dn-h-btn{ display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:44px; padding:0 18px; border-radius:999px; border:1.5px solid var(--dn-line-2); background:#fff; color:var(--dn-ink); font:inherit; font-weight:700; font-size:14px; text-decoration:none; white-space:nowrap; cursor:pointer; }
+.dn-h-btn:hover:not(:disabled){ border-color:var(--dn-blue); color:var(--dn-blue-ink); }
+.dn-h-btn:disabled{ opacity:.55; cursor:default; }
+.dn-h-btn .dn-ic{ width:18px; height:18px; flex-basis:18px; }
+.dn-h-primary{ background:var(--dn-blue); border-color:var(--dn-blue); color:#fff; }
+.dn-h-primary:hover:not(:disabled){ background:var(--dn-blue-ink); border-color:var(--dn-blue-ink); color:#fff; }
+.dn-h-accent{ background:var(--dn-orange); border-color:var(--dn-orange); color:var(--dn-ink); }
+.dn-h-accent:hover:not(:disabled){ background:#ff8d3a; border-color:#ff8d3a; color:var(--dn-ink); }
+.dn-btn-icon{ width:44px; height:44px; flex:0 0 44px; border-radius:50%; border:1.5px solid var(--dn-line-2); background:#fff; color:var(--dn-ink); display:grid; place-items:center; cursor:pointer; padding:0; }
+.dn-btn-icon:hover:not(:disabled){ border-color:var(--dn-blue); color:var(--dn-blue-ink); }
+.dn-btn-icon:disabled{ opacity:.55; cursor:default; }
+.dn-btn-icon .dn-ic{ stroke-width:3.4; }
+
+/* Filtros */
+.dn-h-filters{ display:grid; gap:12px; margin-bottom:16px; }
+.dn-h-frow{ display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+.dn-h-search{ position:relative; flex:1 1 260px; min-width:220px; display:block; }
+.dn-h-search .dn-ic{ position:absolute; left:14px; top:12px; color:var(--dn-muted); pointer-events:none; }
+.dn-h-search input, .dn-h-date-f input{ width:100%; height:44px; border:1px solid var(--dn-line-2); background:#fff; border-radius:999px; padding:0 16px; font:inherit; color:var(--dn-ink); }
+.dn-h-search input{ padding-left:42px; }
+.dn-h-date-f{ flex:0 0 auto; }
+.dn-h-date-f input{ width:auto; min-width:170px; }
+.dn-h-search input:focus, .dn-h-date-f input:focus, .dn-h-size select:focus{ outline:none; border-color:var(--dn-blue); box-shadow:0 0 0 4px rgba(45,104,250,.18); }
+.dn-h-link{ background:none; border:0; padding:8px 4px; font:inherit; font-weight:700; font-size:14px; color:var(--dn-blue-ink); text-decoration:underline; cursor:pointer; }
+.dn-h-chips{ display:flex; gap:8px; flex-wrap:wrap; }
+.dn-h-fchip{ min-height:40px; padding:0 16px; border-radius:999px; border:1.5px solid var(--dn-line-2); background:#fff; font:inherit; font-weight:650; font-size:14px; display:inline-flex; align-items:center; gap:8px; color:var(--dn-ink); cursor:pointer; }
+.dn-h-fchip:hover{ border-color:var(--dn-blue); }
+.dn-h-fchip[aria-pressed="true"]{ background:var(--dn-ink); border-color:var(--dn-ink); color:#fff; }
+.dn-h-n{ font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace; font-size:12px; color:var(--dn-muted); }
+.dn-h-fchip[aria-pressed="true"] .dn-h-n{ color:#C9D1DC; }
+.dn-h-notice{ margin:0 0 14px; padding:12px 16px; border-radius:18px; background:var(--dn-orange-soft); color:#6B2D00; font-size:14px; border:1px solid #F5C99B; }
+.dn-h-top{ scroll-margin-top:12px; }
+
+/* Lista y filas.
+   Escritorio ancho (≥1400 px): todo en una línea — folio · cliente · importe · estados · acciones.
+   Tablet y laptop angosta (768–1399 px): dos líneas — folio · cliente · importe / estados (con salto de línea) · acciones; el importe queda sobre las acciones y los estados
+   viven en su propia celda que se ajusta (flex-wrap), de modo que nunca pueden quedar debajo de los botones.
+   Móvil (≤767 px): tarjeta de tres niveles (ver abajo). */
+.dn-h-list{ display:flex; flex-direction:column; gap:10px; }
+.dn-h-group{ display:flex; flex-direction:column; gap:10px; }
+.dn-h-row{
+  background:#fff; border:1px solid var(--dn-line); border-radius:18px; box-shadow:0 1px 2px rgba(14,17,22,.06); padding:14px 16px;
+  display:grid; align-items:center; column-gap:22px; row-gap:10px;
+  grid-template-columns:max-content minmax(0,1fr) max-content;
+  grid-template-areas:"f c t" "s s a";
+}
+.dn-h-row:hover{ border-color:var(--dn-line-2); }
+.dn-h-f{ grid-area:f; } .dn-h-c{ grid-area:c; } .dn-h-total{ grid-area:t; } .dn-h-states{ grid-area:s; } .dn-h-acts{ grid-area:a; }
+@media (min-width:1400px){
+  .dn-h-row{ grid-template-columns:max-content minmax(150px,230px) minmax(112px,max-content) minmax(210px,1fr) max-content; grid-template-areas:"f c t s a"; }
+  .dn-h-states{ padding-left:14px; }
+}
+/* Tablet ancha (1000–1399 px): folio · cliente · importe · acciones comparten la primera línea y los estados ocupan la segunda; por debajo de 1000 px el importe queda sobre las acciones. El importe nunca se recorta (columna de al menos su contenido). */
+@media (min-width:1000px) and (max-width:1399.98px){
+  .dn-h-row{ grid-template-columns:max-content minmax(150px,230px) minmax(max-content,1fr) max-content; grid-template-areas:"f c t a" "s s s s"; }
+}
+.dn-h-acts{ display:flex; gap:8px; justify-content:flex-end; align-items:center; }
+.dn-h-f{ display:flex; align-items:center; gap:10px; min-width:0; }
+.dn-h-ell, .dn-h-c{ min-width:0; }
+.dn-h-folio{ font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace; font-size:13px; font-weight:700; display:flex; align-items:center; gap:6px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dn-h-folio .dn-ic{ width:16px; height:16px; flex-basis:16px; color:var(--h-green-ink); }
+.dn-h-date{ color:var(--dn-muted); font-size:12.5px; margin-top:2px; }
+.dn-h-cwrap{ position:relative; min-width:0; }
+.dn-h-client{ font-weight:650; white-space:nowrap; line-height:1.3; border-radius:6px; }
+.dn-h-client[tabindex]{ cursor:default; }
+.dn-h-ctip{ position:absolute; left:0; bottom:calc(100% + 6px); z-index:30; width:max-content; max-width:min(360px,80vw); background:var(--dn-ink); color:#fff; font-size:12.5px; font-weight:650; line-height:1.3; padding:7px 12px; border-radius:12px; white-space:normal; overflow-wrap:anywhere; box-shadow:0 10px 30px rgba(14,17,22,.25); opacity:0; visibility:hidden; pointer-events:none; transition:opacity .12s; }
+.dn-h-cwrap:hover .dn-h-ctip, .dn-h-cwrap:focus-within .dn-h-ctip{ opacity:1; visibility:visible; }
+.dn-h-sub{ color:var(--dn-muted); font-size:12.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.dn-h-type{ display:none; }
+.dn-h-total{ font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace; font-weight:700; text-align:right; white-space:nowrap; }
+.dn-h-states{ display:flex; gap:6px; flex-wrap:wrap; min-width:0; }
+.dn-h-chip{ display:inline-flex; align-items:center; padding:4px 11px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap; max-width:100%; }
+.dn-t-cot{ background:var(--dn-orange-soft); color:#8A3A00; }
+.dn-t-rec{ background:var(--h-green-soft); color:var(--h-green-ink); }
+.dn-t-can{ background:var(--h-red-soft); color:var(--h-red-ink); }
+.dn-t-neutral{ background:var(--dn-gray-soft); color:var(--dn-gray-ink); }
+.dn-h-accepted{ display:none; }
+.dn-h-toggle{ width:30px; height:30px; flex:0 0 30px; border-radius:10px; border:1px solid var(--dn-line-2); background:#fff; display:grid; place-items:center; color:var(--dn-muted); padding:0; cursor:pointer; }
+.dn-h-toggle .dn-ic{ width:16px; height:16px; flex-basis:16px; transition:transform .15s; }
+.dn-h-toggle[aria-expanded="true"] .dn-ic{ transform:rotate(180deg); }
+.dn-h-ph{ visibility:hidden; cursor:default; }
+.dn-h-child{ margin-left:34px; background:var(--h-green-soft); border-color:#BFE6D6; box-shadow:none; }
+.dn-h-empty{ background:#fff; border:1.5px dashed var(--dn-line-2); border-radius:26px; padding:40px 20px; text-align:center; color:var(--dn-muted); display:flex; flex-direction:column; align-items:center; gap:14px; }
+.dn-h-empty b{ color:var(--dn-ink); font-size:16px; }
+
+/* Aviso al pasar el mouse o enfocar «Registrar aceptación» */
+.dn-h-tipwrap{ position:relative; display:inline-flex; }
+.dn-h-tip{ position:absolute; right:0; bottom:calc(100% + 8px); z-index:30; background:var(--dn-ink); color:#fff; font-size:12.5px; font-weight:650; line-height:1.3; padding:7px 12px; border-radius:12px; white-space:nowrap; box-shadow:0 10px 30px rgba(14,17,22,.25); opacity:0; visibility:hidden; pointer-events:none; transition:opacity .12s; }
+.dn-h-tip::after{ content:""; position:absolute; right:22px; top:100%; border:6px solid transparent; border-top-color:var(--dn-ink); }
+.dn-h-tipwrap:hover .dn-h-tip, .dn-h-tipwrap:focus-within .dn-h-tip{ opacity:1; visibility:visible; }
+
+/* Paginación */
+.dn-h-pager{ display:flex; align-items:center; justify-content:space-between; gap:12px 18px; flex-wrap:wrap; margin-top:18px; }
+.dn-h-info{ color:var(--dn-muted); font-size:13.5px; }
+.dn-h-info b{ color:var(--dn-ink); }
+.dn-h-ctrl{ display:flex; gap:6px; align-items:center; flex-wrap:wrap; }
+.dn-h-size{ display:inline-flex; align-items:center; gap:8px; font-size:13.5px; color:var(--dn-muted); margin-right:8px; }
+.dn-h-size select{ height:42px; border:1.5px solid var(--dn-line-2); border-radius:999px; padding:0 12px; background:#fff; font:inherit; font-weight:700; color:var(--dn-ink); }
+.dn-h-pg{ min-width:42px; min-height:42px; padding:0 14px; border-radius:999px; border:1.5px solid var(--dn-line-2); background:#fff; font:inherit; font-weight:700; font-size:14px; display:inline-flex; align-items:center; justify-content:center; gap:6px; color:var(--dn-ink); cursor:pointer; }
+.dn-h-pg .dn-ic{ width:16px; height:16px; flex-basis:16px; }
+.dn-h-pg:hover:not(:disabled){ border-color:var(--dn-blue); color:var(--dn-blue-ink); }
+.dn-h-pg:disabled{ opacity:.45; cursor:default; }
+.dn-h-pg[aria-current="page"]{ background:var(--dn-ink); border-color:var(--dn-ink); color:#fff; }
+.dn-h-num{ padding:0; }
+.dn-h-edge{ display:none; }
+.dn-h-gap{ min-width:20px; text-align:center; color:var(--dn-muted); }
+
+/* Menú «⋯» (portal en body): flotante en escritorio/tablet. La capa de fondo recibe la pulsación completa y recién entonces cierra (ver ActionMenu). */
+.dn-amenu-scrim{ position:fixed; inset:0; z-index:79; background:transparent; }
+.dn-amenu{ position:fixed; z-index:80; width:250px; max-width:calc(100vw - 16px); background:#fff; border:1px solid #E3E8F0; border-radius:18px; box-shadow:0 10px 30px rgba(14,17,22,.14); padding:6px; color:#0E1116; font-family:inherit; }
+.dn-amenu-title{ padding:8px 12px 6px; font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace; font-size:12px; font-weight:700; color:#566173; border-bottom:1px solid #E3E8F0; margin-bottom:4px; }
+.dn-amenu-item{ display:flex; align-items:center; gap:10px; width:100%; min-height:44px; border:0; background:none; text-align:left; padding:10px 12px; border-radius:12px; font:inherit; font-weight:600; font-size:14.5px; color:inherit; cursor:pointer; }
+.dn-amenu-item:hover:not(:disabled), .dn-amenu-item:focus-visible{ background:#F4F6FA; }
+.dn-amenu-item:focus-visible{ outline:3px solid #2D68FA; outline-offset:-3px; }
+.dn-amenu-item:disabled{ opacity:.55; cursor:default; }
+.dn-amenu-item.dn-danger{ color:#A61F14; }
+.dn-amenu-back{ color:#566173; font-weight:700; border-bottom:1px solid #E3E8F0; border-radius:12px 12px 0 0; margin-bottom:4px; }
+.dn-amenu-item .dn-ic{ width:18px; height:18px; flex-basis:18px; stroke:currentColor; fill:none; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+.dn-amenu-more{ margin-left:auto; color:#566173; }
+
+/* Tablet (768–1279 px) */
+@media (max-width:1279.98px) and (min-width:768px){
+  .dn-hist{ max-width:none; }
+}
+
+/* Móvil (≤767 px): tarjeta de tres niveles + filtros desplazables + paginación compacta + hoja de acciones (menú «⋯» desde abajo)
+     1) superior (secundario): folio primero, grande y en negrita; debajo cliente (algo menor) y fecha (dato más pequeño)
+     2) intermedio (terciario): tipo de cotización (en un recibo: «Recibo de <cotización>»)
+     3) inferior (primario): importe con más énfasis, estados y acciones; «Aceptada» y «⋯» alineados a la derecha */
+@media (max-width:767.98px){
+  .dn-h-head{ flex-direction:column; align-items:stretch; }
+  .dn-h-head h1{ font-size:25px; }
+  .dn-h-head .dn-h-btn{ width:100%; }
+  .dn-h-chips{ flex-wrap:nowrap; overflow-x:auto; padding-bottom:4px; margin:0 -18px; padding-left:18px; padding-right:18px; scrollbar-width:none; }
+  .dn-h-chips::-webkit-scrollbar{ display:none; }
+  .dn-h-fchip{ flex:0 0 auto; }
+  .dn-h-search{ flex:1 1 100%; }
+  .dn-h-date-f{ flex:1 1 100%; }
+  .dn-h-date-f input{ width:100%; }
+  .dn-h-row{
+    grid-template-columns:auto minmax(0,1fr); column-gap:0; row-gap:0; padding:14px 14px 12px;
+    grid-template-areas:"tog folio" "tog client" "tog date" "type type" "total total" "states states" "acts acts";
+    align-items:start;
+  }
+  .dn-h-f, .dn-h-ell, .dn-h-c{ display:contents; }
+  .dn-h-toggle{ grid-area:tog; margin:0 10px 0 0; align-self:start; }
+  .dn-h-toggle.dn-h-ph{ display:none; }
+  .dn-h-folio{ grid-area:folio; font-size:17px; font-weight:800; letter-spacing:-.2px; }
+  .dn-h-cwrap{ grid-area:client; margin-top:2px; }
+  .dn-h-ctip{ max-width:100%; } /* el aviso del nombre completo nunca sobresale de la tarjeta */
+  .dn-h-client{ font-size:14px; }
+  .dn-h-date{ grid-area:date; font-size:11.5px; margin-top:2px; }
+  .dn-h-sub{ display:none; }
+  .dn-h-type{ grid-area:type; display:block; margin:10px 0 0; padding:8px 0 0; border-top:1px solid var(--dn-line); font-size:12.5px; font-weight:600; color:var(--dn-muted); }
+  .dn-h-total{ grid-area:total; text-align:left; font-size:23px; font-weight:800; letter-spacing:-.4px; margin-top:8px; }
+  .dn-h-states{ grid-area:states; margin-top:8px; padding-left:0; }
+  .dn-h-chip[data-state="contratado"]{ display:none; }
+  .dn-h-acts{ grid-area:acts; margin-top:10px; justify-content:flex-end; align-items:center; width:100%; }
+  .dn-h-tipwrap{ flex:1 1 auto; display:flex; }
+  .dn-h-tipwrap .dn-h-btn{ flex:1 1 auto; }
+  .dn-h-tip{ display:none; }
+  .dn-h-acts > .dn-h-btn{ flex:1 1 auto; min-width:0; }
+  .dn-h-accepted{ display:inline-flex; align-items:center; margin-left:auto; padding:6px 12px; border-radius:999px; font-size:13px; font-weight:800; background:var(--h-green-soft); color:var(--h-green-ink); }
+  .dn-h-acts .dn-btn-icon{ flex:0 0 44px; }
+  .dn-h-child{ margin-left:14px; }
+  .dn-h-pager{ flex-direction:column; align-items:stretch; }
+  .dn-h-info{ text-align:center; }
+  .dn-h-ctrl{ justify-content:space-between; flex-wrap:wrap; gap:6px; }
+  .dn-h-size{ flex:1 1 100%; justify-content:space-between; margin:0 0 2px; }
+  /* Una sola fila compacta: «⇤ ‹ 1 2 3 › ⇥». Anterior/Siguiente quedan como icono con su nombre accesible; solo se muestran hasta tres números. */
+  .dn-h-gap, .dn-h-num:not(.dn-h-m){ display:none; }
+  .dn-h-ctrl .dn-h-pg{ position:relative; flex:1 1 0; min-width:36px; max-width:64px; min-height:46px; padding:0; }
+  .dn-h-edge{ display:inline-flex; }
+  .dn-h-pgtxt{ position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  .dn-h-pg[aria-current="page"]{ box-shadow:0 0 0 3px #fff, 0 0 0 5px var(--dn-blue); }
+  .dn-amenu-scrim{ background:rgba(14,17,22,.45); z-index:95; }
+  .dn-amenu{ left:0 !important; right:0; top:auto !important; bottom:0; width:auto; max-width:none; z-index:96; border-radius:26px 26px 0 0; border:0; padding:12px 14px calc(18px + env(safe-area-inset-bottom, 0px)); max-height:80vh; overflow:auto; }
+  .dn-amenu::before{ content:""; display:block; width:44px; height:5px; border-radius:5px; background:#CBD3DF; margin:0 auto 10px; }
+  .dn-amenu-title{ font-size:14px; border:0; padding:4px 8px 8px; }
+  .dn-amenu-item{ min-height:52px; font-size:15.5px; }
+}
+/* Pantallas muy angostas (≤359 px): los 7 controles de paginación (Primera, Anterior, 3 números, Siguiente, Última) caben en UNA fila */
+@media (max-width:359.98px){
+  .dn-h-ctrl{ gap:4px; }
+  .dn-h-ctrl .dn-h-pg{ min-width:30px; }
+  .dn-h-size{ margin-bottom:0; }
+}
