@@ -11,6 +11,9 @@ import { resolveQuoteServiceView } from '@/lib/quoteServiceView'
 import DonnieIcon from '@/components/DonnieIcon'
 import { announceSoon } from '@/components/DonnieToast'
 
+// N3-C: etiqueta visible de Inicio (valor interno lifecycle_status 'contratado' y consultas sin cambios).
+const inicioBadgeText = (text) => (text === 'Contratada' ? 'Aceptada' : text)
+
 const initials = (name) => {
   const w = String(name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2)
   return w.length ? w.map((x) => x[0]).join('').toUpperCase() : '·'
@@ -58,7 +61,7 @@ export default function InicioPage() {
       <section className="dn-hero" aria-labelledby="dn-h1">
         <div>
           <div className="dn-eyebrow">Bienvenido a Donnie</div>
-          <h1 id="dn-h1">Jamás fue tan fácil gestionar tu negocio</h1>
+          <h1 id="dn-h1">Nunca fue tan fácil gestionar tu negocio</h1>
           <p>Cotiza, da seguimiento a tus clientes y agenda tus servicios desde un solo lugar.</p>
         </div>
         <div className="dn-hero-soon" role="group" aria-label="Próximos módulos principales">
@@ -99,7 +102,7 @@ export default function InicioPage() {
         {data && (
           <div className="dn-kpis">
             <Kpi label="En cotización" value={data.counts.precontractual} hint="aún sin contratar" tone="orange" />
-            <Kpi label="Contratadas" value={data.counts.contracted} hint="contratación vigente" tone="blue" />
+            <Kpi label="Aceptadas" value={data.counts.contracted} hint="contratación vigente" tone="blue" />
             <Kpi label="Canceladas" value={data.counts.cancelled} hint="contratación cancelada" tone="gray" />
             <Kpi label="Servicios por agendar" value={data.counts.pendingServices} hint="pendientes de agendar" tone="orange" />
           </div>
@@ -133,7 +136,7 @@ export default function InicioPage() {
                     <span className="dn-recent-name" title={q.client_name || ''}>{q.client_name || 'Sin nombre de cliente'}</span>
                     <span className="dn-recent-meta">{q.folio} · {new Date(q.created_at).toLocaleDateString('es-MX')}</span>
                   </span>
-                  <span className={`badge ${badge.tone}`}>{badge.text}</span>
+                  <span className={`badge ${badge.tone}`}>{inicioBadgeText(badge.text)}</span>
                 </li>
               )
             })}

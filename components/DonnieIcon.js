@@ -32,12 +32,24 @@ const PATHS = {
   first: 'M7 6v12 M18 6l-6 6 6 6',
   last: 'M17 6v12 M6 6l6 6-6 6',
   download: 'M12 4v11 M7 11l5 5 5-5 M5 20h14',
+  tick: 'M5 12.5l4.5 4.5L19 7.5',
+  star: 'M12 3.5l2.7 5.6 6.1.8-4.5 4.2 1.1 6-5.4-3-5.4 3 1.1-6L3.2 9.9l6.1-.8z',
 }
 
 export default function DonnieIcon({ name, className = '' }) {
   return (
     <svg className={`dn-ic ${className}`.trim()} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
       <path d={PATHS[name] || ''} />
+    </svg>
+  )
+}
+
+// Papelera con tapa independiente: al pasar el mouse o enfocar el botón que la contiene (.dn-q-del) la tapa se abre (CSS en donnie.css).
+export function DonnieTrash({ className = '' }) {
+  return (
+    <svg className={`dn-ic dn-trash ${className}`.trim()} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <path d="M6 9l1 11a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-11 M10 12v5 M14 12v5" />
+      <g className="dn-lid"><path d="M4 6.5h16 M9.5 6.5V5a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v1.5" /></g>
     </svg>
   )
 }

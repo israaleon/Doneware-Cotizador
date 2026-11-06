@@ -104,7 +104,7 @@ export default function DonnieBrand() {
           D<span className="dn-rest">onn<span ref={giRef}>{dotless ? 'ı' : 'i'}</span>e</span><i className="dn-dot" ref={dtRef}>.</i>
         </span>
       </div>
-      <div className="dn-lema">Jamás fue tan fácil gestionar tu negocio</div>
+      <div className="dn-lema">Nunca fue tan fácil gestionar tu negocio</div>
     </div>
   )
 }
